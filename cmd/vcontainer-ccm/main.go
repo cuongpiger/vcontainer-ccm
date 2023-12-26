@@ -1,4 +1,10 @@
-package vcontainer_ccm
+/***********************************************************************************************************************
+ * Author: Cuong. Duong Manh <cuongdm8499@gmail.com>
+ * Description:
+ *  - TODO
+ **/
+
+package main
 
 import (
 	goflag "flag"
@@ -23,11 +29,17 @@ func main() {
 	// Create the external controller manager with default configuration
 	ccmOpts, err := options.NewCloudControllerManagerOptions()
 	if err != nil {
-		klog.Fatalf("unable to initialize command options: %v", err)
+		klog.Fatalf("Unable to initialize command options [%v]", err)
 	}
 
 	fss := cliflag.NamedFlagSets{}
-	command := app.NewCloudControllerManagerCommand(ccmOpts, cloudInitializer, app.DefaultInitFuncConstructors, names.CCMControllerAliases(), fss, wait.NeverStop)
+	command := app.NewCloudControllerManagerCommand(
+		ccmOpts,
+		cloudInitializer,
+		app.DefaultInitFuncConstructors,
+		names.CCMControllerAliases(),
+		fss,
+		wait.NeverStop)
 
 	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
 	pflag.CommandLine.AddGoFlagSet(goflag.CommandLine)
@@ -35,10 +47,10 @@ func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
-	klog.V(1).Infof("vcontainer-ccm version: %s", version.Version)
+	klog.V(1).Infof("The vcontainer-ccm version is [%s]", version.Version)
 
 	if err := command.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -50,20 +62,20 @@ func cloudInitializer(pCfg *config.CompletedConfig) cloudprovider.Interface {
 	// Initialize cloud provider with the cloud provider name and config file path provided
 	cloud, err := cloudprovider.InitCloudProvider(cloudCfg.Name, cloudCfg.CloudConfigFile)
 	if err != nil {
-		klog.Fatalf("failed to initialize cloud provider: %v", err)
+		klog.Fatalf("Failed to initialize cloud provider: [%v]", err)
 	}
 
 	// Check if the cloud provider is nil
 	if cloud == nil {
-		klog.Fatalf("cloud provider is nil")
+		klog.Fatalf("Cloud provider is nil")
 	}
 
 	// Check if the cloud provider has a cluster ID
 	if !cloud.HasClusterID() {
 		if pCfg.ComponentConfig.KubeCloudShared.AllowUntaggedCloud {
-			klog.Warning("detected a cluster without cluster ID. A cluster ID will be required in the future. Please tag your cluster to avoid any future issues")
+			klog.Warning("Detected a cluster without cluster ID. A cluster ID will be required in the future. Please tag your cluster to avoid any future issues")
 		} else {
-			klog.Fatal("no cluster ID found, a cluster ID is required for this cloud provider to function properly, this check can bypassed by setting the allow-untagged-cloud option")
+			klog.Fatal("No cluster ID found, a cluster ID is required for this cloud provider to function properly, this check can bypassed by setting the allow-untagged-cloud option")
 		}
 	}
 
