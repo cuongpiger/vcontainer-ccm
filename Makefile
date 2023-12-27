@@ -32,7 +32,7 @@ TAR_FILE	?= rootfs.tar
 
 GOOS		?= $(shell go env GOOS)
 GOPROXY		?= $(shell go env GOPROXY)
-VERSION         ?= "v0.0.0"
+VERSION     ?= v0.0.0
 GOARCH		:=
 GOFLAGS		:=
 TAGS		:=

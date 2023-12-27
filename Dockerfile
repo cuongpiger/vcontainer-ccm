@@ -67,10 +67,10 @@ RUN make build GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} VERSION=
 ##
 ## openstack-cloud-controller-manager
 ##
-FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE} as k8s-ccm
+FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE} as vcontainer-ccm
 
 COPY --from=certs /etc/ssl/certs /etc/ssl/certs
-COPY --from=builder /build/k8s-ccm /bin/k8s-ccm
+COPY --from=builder /build/vcontainer-ccm /bin/vcontainer-ccm
 
 LABEL name="vcontainer-ccm" \
       license="Apache Version 2.0" \
