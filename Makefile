@@ -36,7 +36,7 @@ VERSION         ?= "v0.0.0"
 GOARCH		:=
 GOFLAGS		:=
 TAGS		:=
-LDFLAGS		:= "-w -s -X 'k8s.io/component-base/version.gitVersion=$(VERSION)' -X 'github.com/cuongpiger/k8s-ccm/pkg/version.Version=$(VERSION)'"
+LDFLAGS		:= "-w -s -X 'k8s.io/component-base/version.gitVersion=$(VERSION)' -X 'github.com/cuongpiger/vcontainer-ccm/pkg/version.Version=$(VERSION)'"
 GOX_LDFLAGS	:= $(shell echo "$(LDFLAGS) -extldflags \"-static\"")
 REGISTRY	?= quay.io/cuongdm8499
 IMAGE_OS	?= linux
