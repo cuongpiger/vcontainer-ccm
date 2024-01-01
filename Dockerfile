@@ -65,7 +65,7 @@ RUN make build GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} VERSION=
 ################################################################################
 
 ##
-## openstack-cloud-controller-manager
+## vcontainer-cloud-controller-manager
 ##
 FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE} as vcontainer-ccm
 
