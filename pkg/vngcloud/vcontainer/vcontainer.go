@@ -4,6 +4,7 @@ import (
 	"fmt"
 	metadata2 "github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils/metadata"
 	vconSdkClient "github.com/vngcloud/vcontainer-sdk/client"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer"
 	lK8sCore "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -16,6 +17,7 @@ type VContainer struct {
 	provider     *vconSdkClient.ProviderClient
 	vLBOpts      VLBOpts
 	metadataOpts metadata2.Opts
+	config       *Config
 
 	kubeClient       kubernetes.Interface
 	eventBroadcaster record.EventBroadcaster
@@ -33,7 +35,10 @@ func (s *VContainer) Initialize(clientBuilder lcloudProvider.ControllerClientBui
 }
 
 func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
-	return &vLB{}, true
+	vlb, _ := vcontainer.NewLoadBalancer(s.getVServerURL(), s.provider)
+	return &vLB{
+		vLBSC: vlb,
+	}, true
 }
 
 func (s *VContainer) Instances() (lcloudProvider.Instances, bool) {
@@ -62,4 +67,8 @@ func (s *VContainer) ProviderName() string {
 
 func (s *VContainer) HasClusterID() bool {
 	return true
+}
+
+func (s *VContainer) getVServerURL() string {
+	return s.config.Global.VServerGatewayURL
 }
