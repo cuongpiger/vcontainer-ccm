@@ -1,17 +1,15 @@
 package vcontainer
 
 import (
-	"context"
+	"fmt"
 	metadata2 "github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils/metadata"
 	vconSdkClient "github.com/vngcloud/vcontainer-sdk/client"
 	lK8sCore "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
 	lcloudProvider "k8s.io/cloud-provider"
-	"k8s.io/klog/v2"
 )
 
 type VContainer struct {
@@ -29,7 +27,9 @@ func (s *VContainer) Initialize(clientBuilder lcloudProvider.ControllerClientBui
 	s.kubeClient = clientset
 	s.eventBroadcaster = record.NewBroadcaster()
 	s.eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: s.kubeClient.CoreV1().Events("")})
-	s.eventRecorder = s.eventBroadcaster.NewRecorder(scheme.Scheme, lK8sCore.EventSource{Component: "cloud-provider-openstack"})
+	s.eventRecorder = s.eventBroadcaster.NewRecorder(
+		scheme.Scheme,
+		lK8sCore.EventSource{Component: fmt.Sprintf("cloud-provider-%s", ProviderName)})
 }
 
 func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
@@ -45,19 +45,7 @@ func (s *VContainer) InstancesV2() (lcloudProvider.InstancesV2, bool) {
 }
 
 func (s *VContainer) Zones() (lcloudProvider.Zones, bool) {
-	klog.V(1).Info("Claiming to support Zones")
-	return s, true
-}
-func (s *VContainer) GetZone(ctx context.Context) (lcloudProvider.Zone, error) {
-	return lcloudProvider.Zone{}, nil
-}
-
-func (s *VContainer) GetZoneByProviderID(ctx context.Context, providerID string) (lcloudProvider.Zone, error) {
-	return lcloudProvider.Zone{}, nil
-}
-
-func (s *VContainer) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (lcloudProvider.Zone, error) {
-	return lcloudProvider.Zone{}, nil
+	return nil, false
 }
 
 func (s *VContainer) Routes() (lcloudProvider.Routes, bool) {
