@@ -33,7 +33,7 @@ func (s *VContainer) Initialize(clientBuilder lcloudProvider.ControllerClientBui
 }
 
 func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
-	return nil, false
+	return &vLB{}, true
 }
 
 func (s *VContainer) Instances() (lcloudProvider.Instances, bool) {
