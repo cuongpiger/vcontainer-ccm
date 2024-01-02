@@ -11,6 +11,7 @@ import (
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
 	lcloudProvider "k8s.io/cloud-provider"
+	"k8s.io/klog/v2"
 )
 
 type VContainer struct {
@@ -35,9 +36,14 @@ func (s *VContainer) Initialize(clientBuilder lcloudProvider.ControllerClientBui
 }
 
 func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
+	klog.V(4).Info("Set up LoadBalancer service for vcontainer-ccm")
+
+	// Prepare the client for vLB
 	vlb, _ := vcontainer.NewLoadBalancer(s.getVServerURL(), s.provider)
 	return &vLB{
-		vLBSC: vlb,
+		vLBSC:         vlb,
+		kubeClient:    s.kubeClient,
+		eventRecorder: s.eventRecorder,
 	}, true
 }
 

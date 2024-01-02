@@ -2,9 +2,12 @@ package vcontainer
 
 import (
 	"context"
-	"github.com/vngcloud/vcontainer-sdk/client"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
+
+	"github.com/vngcloud/vcontainer-sdk/client"
 )
 
 type VLBOpts struct {
@@ -17,7 +20,9 @@ type VLBOpts struct {
 }
 
 type vLB struct {
-	vLBSC *client.ServiceClient
+	vLBSC         *client.ServiceClient
+	kubeClient    kubernetes.Interface
+	eventRecorder record.EventRecorder
 }
 
 func (s *vLB) GetLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service) (*corev1.LoadBalancerStatus, bool, error) {
