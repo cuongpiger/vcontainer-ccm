@@ -19,6 +19,7 @@ func NewVContainer(pCfg Config) (*VContainer, error) {
 	vcontainer := &VContainer{
 		provider: provider,
 		vLBOpts:  pCfg.VLB,
+		config:   &pCfg,
 	}
 
 	return vcontainer, err
