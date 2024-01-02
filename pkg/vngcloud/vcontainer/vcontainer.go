@@ -70,5 +70,5 @@ func (s *VContainer) HasClusterID() bool {
 }
 
 func (s *VContainer) getVServerURL() string {
-	return s.config.Global.VServerGatewayURL
+	return s.config.Global.VServerURL
 }
