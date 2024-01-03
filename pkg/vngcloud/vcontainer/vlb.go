@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
+	"github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -11,6 +12,11 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/vngcloud/vcontainer-sdk/client"
+)
+
+const (
+	lbFormat      = "%s%s_%s_%s"
+	servicePrefix = "vcontainer_"
 )
 
 type VLBOpts struct {
@@ -43,7 +49,7 @@ func (s *vLB) GetLoadBalancer(ctx context.Context, clusterName string, service *
 }
 
 func (s *vLB) GetLoadBalancerName(_ context.Context, clusterName string, service *corev1.Service) string {
-	return ""
+	return utils.Sprintf255(lbFormat, servicePrefix, clusterName, service.Namespace, service.Name)
 }
 
 func (s *vLB) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *corev1.Service, nodes []*corev1.Node) (*corev1.LoadBalancerStatus, error) {
@@ -64,7 +70,7 @@ func (s *vLB) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string,
 // ************************************************** PRIVATE METHODS **************************************************
 
 func (s *vLB) ensureLoadBalancer(pCtx context.Context, pClusterName string, pService *corev1.Service, pNodes []*corev1.Node) (rLbs *corev1.LoadBalancerStatus, rErr error) {
-	//svcConf := new(serviceConfig)
+	svcConf := new(serviceConfig)
 
 	// Update the service annotations(e.g. add vcontainer.vngcloud.vn/load-balancer-id) in the end if it doesn't exist
 	patcher := newServicePatcher(s.kubeClient, pService)
@@ -72,7 +78,10 @@ func (s *vLB) ensureLoadBalancer(pCtx context.Context, pClusterName string, pSer
 		rErr = patcher.Patch(pCtx, rErr)
 	}()
 
+	pLbName := s.GetLoadBalancerName(pCtx, pClusterName, pService)
+
 	klog.InfoS("EnsureLoadBalancer", "cluster", pClusterName, "service", klog.KObj(pService))
+	rErr = s.createLoadBalancer(pLbName, pClusterName, pService, pNodes, svcConf)
 
 	return nil, nil
 }
