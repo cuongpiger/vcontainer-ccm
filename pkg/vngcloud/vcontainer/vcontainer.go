@@ -14,16 +14,24 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type VContainer struct {
-	provider     *vconSdkClient.ProviderClient
-	vLBOpts      VLBOpts
-	metadataOpts metadata2.Opts
-	config       *Config
+type (
+	VContainer struct {
+		provider     *vconSdkClient.ProviderClient
+		vLBOpts      VLBOpts
+		metadataOpts metadata2.Opts
+		config       *Config
+		extraInfo    *ExtraInfo
 
-	kubeClient       kubernetes.Interface
-	eventBroadcaster record.EventBroadcaster
-	eventRecorder    record.EventRecorder
-}
+		kubeClient       kubernetes.Interface
+		eventBroadcaster record.EventBroadcaster
+		eventRecorder    record.EventRecorder
+	}
+
+	ExtraInfo struct {
+		ProjectID string
+		UserID    int64
+	}
+)
 
 func (s *VContainer) Initialize(clientBuilder lcloudProvider.ControllerClientBuilder, stop <-chan struct{}) {
 	clientset := clientBuilder.ClientOrDie("cloud-controller-manager")
@@ -44,6 +52,7 @@ func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
 		vLBSC:         vlb,
 		kubeClient:    s.kubeClient,
 		eventRecorder: s.eventRecorder,
+		extraInfo:     s.extraInfo,
 	}, true
 }
 

@@ -16,10 +16,3 @@ func NewVContainerClient(authOpts *AuthOpts) (*client.ProviderClient, error) {
 
 	return provider, err
 }
-
-func NewVLBClient(authOpts *AuthOpts) (*client.ProviderClient, error) {
-	provider, _ := vcontainer.NewClient(authOpts.VServerGatewayURL)
-	err := vcontainer.Authenticate(provider, authOpts.ToOAuth2Options())
-
-	return provider, err
-}

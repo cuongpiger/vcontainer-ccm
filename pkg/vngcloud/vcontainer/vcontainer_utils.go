@@ -5,7 +5,10 @@ import (
 	"github.com/cuongpiger/vcontainer-ccm/pkg/client"
 	lvconCcmMetrics "github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils/metadata"
+	client2 "github.com/vngcloud/vcontainer-sdk/client"
 	lvconSdkErr "github.com/vngcloud/vcontainer-sdk/error/utils"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer"
+	lPortal "github.com/vngcloud/vcontainer-sdk/vcontainer/services/portal/v1"
 	gcfg "gopkg.in/gcfg.v1"
 	"io"
 	lcloudProvider "k8s.io/cloud-provider"
@@ -16,13 +19,24 @@ import (
 
 func NewVContainer(pCfg Config) (*VContainer, error) {
 	provider, err := client.NewVContainerClient(&pCfg.Global)
-	vcontainer := &VContainer{
-		provider: provider,
-		vLBOpts:  pCfg.VLB,
-		config:   &pCfg,
+	if err != nil {
+		klog.Errorf("failed to init VContainer client: %v", err)
+		return nil, err
 	}
 
-	return vcontainer, err
+	metadator := metadata.GetMetadataProvider(pCfg.Metadata.SearchOrder)
+	extraInfo, err := setupPortalInfo(provider, metadator, pCfg.Global.VServerURL)
+	if err != nil {
+		klog.Errorf("failed to setup portal info: %v", err)
+		return nil, err
+	}
+
+	return &VContainer{
+		provider:  provider,
+		vLBOpts:   pCfg.VLB,
+		config:    &pCfg,
+		extraInfo: extraInfo,
+	}, nil
 }
 
 // ************************************************* PRIVATE FUNCTIONS *************************************************
@@ -41,6 +55,7 @@ func init() {
 				return nil, err
 			}
 
+			config.Metadata = getMetadataOption(config.Metadata)
 			cloud, err := NewVContainer(config)
 			if err != nil {
 				klog.Warningf("failed to init VContainer: %v", err)
@@ -75,4 +90,36 @@ func readConfig(pCfg io.Reader) (Config, error) {
 	}
 
 	return config, nil
+}
+
+func getMetadataOption(pMetadata metadata.Opts) metadata.Opts {
+	if pMetadata.SearchOrder == "" {
+		pMetadata.SearchOrder = fmt.Sprintf("%s,%s", metadata.ConfigDriveID, metadata.MetadataID)
+	}
+	klog.Info("getMetadataOption; metadataOpts is ", pMetadata)
+	return pMetadata
+}
+
+func setupPortalInfo(pProvider *client2.ProviderClient, pMedatata metadata.IMetadata, pPortalURL string) (*ExtraInfo, error) {
+	projectID, err := pMedatata.GetProjectID()
+	if err != nil {
+		return nil, err
+	}
+	klog.Infof("SetupPortalInfo; projectID is %s", projectID)
+
+	portalClient, _ := vcontainer.NewPortal(pPortalURL, pProvider)
+	portalInfo, err := lPortal.Get(portalClient, projectID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if portalInfo == nil {
+		return nil, fmt.Errorf("can not get portal information")
+	}
+
+	return &ExtraInfo{
+		ProjectID: portalInfo.ProjectID,
+		UserID:    portalInfo.UserID,
+	}, nil
 }
