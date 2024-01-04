@@ -1,6 +1,7 @@
 package client
 
 import (
+	"github.com/cuongpiger/joat/utils"
 	"github.com/vngcloud/vcontainer-sdk/client"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer"
 	"k8s.io/klog/v2"
@@ -11,7 +12,8 @@ func LogCfg(pAuthOpts AuthOpts) {
 }
 
 func NewVContainerClient(authOpts *AuthOpts) (*client.ProviderClient, error) {
-	provider, _ := vcontainer.NewClient(authOpts.IdentityURL)
+	identityUrl := utils.NormalizeURL(authOpts.IdentityURL) + "v2"
+	provider, _ := vcontainer.NewClient(identityUrl)
 	err := vcontainer.Authenticate(provider, authOpts.ToOAuth2Options())
 
 	return provider, err

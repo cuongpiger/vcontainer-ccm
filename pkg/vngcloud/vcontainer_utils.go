@@ -2,6 +2,7 @@ package vngcloud
 
 import (
 	"fmt"
+	"github.com/cuongpiger/joat/utils"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/client"
 	lvconCcmMetrics "github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/metadata"
@@ -25,7 +26,11 @@ func NewVContainer(pCfg Config) (*VContainer, error) {
 	}
 
 	metadator := metadata.GetMetadataProvider(pCfg.Metadata.SearchOrder)
-	extraInfo, err := setupPortalInfo(provider, metadator, pCfg.Global.VServerURL)
+	extraInfo, err := setupPortalInfo(
+		provider,
+		metadator,
+		utils.NormalizeURL(pCfg.Global.VServerURL)+"vserver-gateway/v1")
+
 	if err != nil {
 		klog.Errorf("failed to setup portal info: %v", err)
 		return nil, err
