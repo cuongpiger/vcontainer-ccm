@@ -126,6 +126,7 @@ func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *corev1.
 		}))
 
 	if mc.ObserveReconcile(err) != nil {
+		klog.Errorf("failed to create load balancer %s for service %s: %v", pLbName, pService.Name, err)
 		return err
 	}
 

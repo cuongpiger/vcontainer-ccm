@@ -2,6 +2,7 @@ package vngcloud
 
 import (
 	"fmt"
+	"github.com/cuongpiger/joat/utils"
 	metadata2 "github.com/cuongpiger/vcontainer-ccm/pkg/utils/metadata"
 	vconSdkClient "github.com/vngcloud/vcontainer-sdk/client"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer"
@@ -47,7 +48,10 @@ func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
 	klog.V(4).Info("Set up LoadBalancer service for vcontainer-ccm")
 
 	// Prepare the client for vLB
-	vlb, _ := vcontainer.NewLoadBalancer(s.getVServerURL(), s.provider)
+	vlb, _ := vcontainer.NewLoadBalancer(
+		utils.NormalizeURL(s.getVServerURL())+"vlb-gateway/v2",
+		s.provider)
+
 	return &vLB{
 		vLBSC:         vlb,
 		kubeClient:    s.kubeClient,
