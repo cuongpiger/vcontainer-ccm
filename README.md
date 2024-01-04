@@ -7,3 +7,8 @@
   ```bash=
   make clean && push-multiarch-images
   ```
+  
+- Quick build:
+  ```bash=
+  make clean && make build && make bush-local-images
+  ```
