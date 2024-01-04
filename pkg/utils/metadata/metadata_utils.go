@@ -3,7 +3,7 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils/mount"
+	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/mount"
 	"io"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/exec"

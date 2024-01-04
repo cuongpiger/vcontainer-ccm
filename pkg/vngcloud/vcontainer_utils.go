@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/client"
 	lvconCcmMetrics "github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils/metadata"
+	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/metadata"
 	client2 "github.com/vngcloud/vcontainer-sdk/client"
 	lvconSdkErr "github.com/vngcloud/vcontainer-sdk/error/utils"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer"

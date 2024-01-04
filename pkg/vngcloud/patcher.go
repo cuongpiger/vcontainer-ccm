@@ -2,7 +2,7 @@ package vngcloud
 
 import (
 	"context"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils"
+	"github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/kubernetes"

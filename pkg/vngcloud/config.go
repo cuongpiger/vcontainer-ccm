@@ -2,7 +2,7 @@ package vngcloud
 
 import (
 	vconSdkClient "github.com/cuongpiger/vcontainer-ccm/pkg/client"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils/metadata"
+	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/metadata"
 )
 
 type (

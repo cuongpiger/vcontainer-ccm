@@ -2,7 +2,7 @@ package vngcloud
 
 import (
 	"fmt"
-	metadata2 "github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils/metadata"
+	metadata2 "github.com/cuongpiger/vcontainer-ccm/pkg/utils/metadata"
 	vconSdkClient "github.com/vngcloud/vcontainer-sdk/client"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer"
 	lK8sCore "k8s.io/api/core/v1"

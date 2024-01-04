@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud/utils"
+	"github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
