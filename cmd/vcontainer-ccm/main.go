@@ -60,7 +60,11 @@ func cloudInitializer(pCfg *config.CompletedConfig) cloudprovider.Interface {
 	cloudCfg := pCfg.ComponentConfig.KubeCloudShared.CloudProvider
 
 	// Initialize cloud provider with the cloud provider name and config file path provided
+
 	cloud, err := cloudprovider.InitCloudProvider(cloudCfg.Name, cloudCfg.CloudConfigFile)
+	fmt.Println("CUONGDM3: cloudprovider.InitCloudProvider")
+	klog.Info("The cloud provider name is: ", cloudCfg.Name)
+	klog.Info("The cloud provider config file path is: ", cloudCfg.CloudConfigFile)
 	if err != nil {
 		klog.Fatalf("Failed to initialize cloud provider: [%v]", err)
 	}

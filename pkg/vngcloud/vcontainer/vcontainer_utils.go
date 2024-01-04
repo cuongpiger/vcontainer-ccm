@@ -42,6 +42,7 @@ func NewVContainer(pCfg Config) (*VContainer, error) {
 // ************************************************* PRIVATE FUNCTIONS *************************************************
 
 func init() {
+	fmt.Println("CUONGDM3: init the vcontainer-ccm")
 	// Register metrics
 	lvconCcmMetrics.RegisterMetrics("vcontainer-ccm")
 
@@ -49,13 +50,13 @@ func init() {
 	lcloudProvider.RegisterCloudProvider(
 		ProviderName,
 		func(cfg io.Reader) (lcloudProvider.Interface, error) {
-			config, err := readConfig(cfg)
+			config, err := ReadConfig(cfg)
 			if err != nil {
 				klog.Warningf("failed to read config file: %v", err)
 				return nil, err
 			}
 
-			config.Metadata = getMetadataOption(config.Metadata)
+			config.Metadata = GetMetadataOption(config.Metadata)
 			cloud, err := NewVContainer(config)
 			if err != nil {
 				klog.Warningf("failed to init VContainer: %v", err)
@@ -66,7 +67,7 @@ func init() {
 	)
 }
 
-func readConfig(pCfg io.Reader) (Config, error) {
+func ReadConfig(pCfg io.Reader) (Config, error) {
 	if pCfg == nil {
 		return Config{}, lvconSdkErr.NewErrEmptyConfig("", "config file is empty")
 	}
@@ -92,7 +93,7 @@ func readConfig(pCfg io.Reader) (Config, error) {
 	return config, nil
 }
 
-func getMetadataOption(pMetadata metadata.Opts) metadata.Opts {
+func GetMetadataOption(pMetadata metadata.Opts) metadata.Opts {
 	if pMetadata.SearchOrder == "" {
 		pMetadata.SearchOrder = fmt.Sprintf("%s,%s", metadata.ConfigDriveID, metadata.MetadataID)
 	}

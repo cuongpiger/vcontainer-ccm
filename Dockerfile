@@ -54,10 +54,8 @@ ARG TARGETARCH
 ARG VERSION
 
 WORKDIR /build
-COPY Makefile go.mod go.sum ./
-COPY cmd/ cmd/
-COPY pkg/ pkg/
-RUN make build GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} VERSION=${VERSION}
+COPY ./vcontainer-ccm ./
+RUN chmod +x ./vcontainer-ccm
 
 
 ################################################################################
