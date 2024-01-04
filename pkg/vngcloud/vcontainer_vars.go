@@ -1,4 +1,4 @@
-package vcontainer
+package vngcloud
 
 const (
 	ProviderName = "vngcloud"

@@ -1,4 +1,4 @@
-package vcontainer
+package vngcloud
 
 import (
 	vconSdkClient "github.com/cuongpiger/vcontainer-ccm/pkg/client"
