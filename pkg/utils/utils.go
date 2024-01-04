@@ -42,15 +42,15 @@ func PatchService(ctx context.Context, client clientset.Interface, cur, mod *v1.
 }
 
 // Sprintf255 formats according to a format specifier and returns the resulting string with a maximum length of 255 characters.
-func Sprintf255(format string, args ...interface{}) string {
-	return CutString255(fmt.Sprintf(format, args...))
+func Sprintf50(format string, args ...interface{}) string {
+	return CutString50(fmt.Sprintf(format, args...))
 }
 
 // CutString255 makes sure the string length doesn't exceed 255, which is usually the maximum string length in OpenStack.
-func CutString255(original string) string {
+func CutString50(original string) string {
 	ret := original
-	if len(original) > 255 {
-		ret = original[:255]
+	if len(original) > 50 {
+		ret = original[:50]
 	}
 	return ret
 }

@@ -48,12 +48,17 @@ func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
 	klog.V(4).Info("Set up LoadBalancer service for vcontainer-ccm")
 
 	// Prepare the client for vLB
-	vlb, _ := vcontainer.NewLoadBalancer(
+	vlb, _ := vcontainer.NewServiceClient(
 		utils.NormalizeURL(s.getVServerURL())+"vlb-gateway/v2",
-		s.provider)
+		s.provider, "vlb-gateway")
+
+	vserver, _ := vcontainer.NewServiceClient(
+		utils.NormalizeURL(s.getVServerURL())+"vserver-gateway/v2",
+		s.provider, "vserver-gateway")
 
 	return &vLB{
 		vLBSC:         vlb,
+		vServerSC:     vserver,
 		kubeClient:    s.kubeClient,
 		eventRecorder: s.eventRecorder,
 		extraInfo:     s.extraInfo,

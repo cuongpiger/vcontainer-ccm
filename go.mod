@@ -3,9 +3,11 @@ module github.com/cuongpiger/vcontainer-ccm
 go 1.21
 
 require (
+	github.com/cuongpiger/joat v0.0.3
 	github.com/spf13/pflag v1.0.5
-	github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240103061441-23ddac64f19a
+	github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240104100309-259a3d6d944a
 	github.com/vngcloud/vcontainer-storage-interface v0.1.1
+	golang.org/x/sys v0.13.0
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.29.0
 	k8s.io/apimachinery v0.29.0
@@ -13,6 +15,7 @@ require (
 	k8s.io/cloud-provider v0.29.0
 	k8s.io/component-base v0.29.0
 	k8s.io/klog/v2 v2.110.1
+	k8s.io/mount-utils v0.29.0
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 )
 
@@ -30,7 +33,6 @@ require (
 	github.com/container-storage-interface/spec v1.8.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
-	github.com/cuongpiger/joat v0.0.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/evanphx/json-patch v4.12.0+incompatible // indirect
@@ -103,7 +105,6 @@ require (
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
-	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
@@ -124,7 +125,6 @@ require (
 	k8s.io/controller-manager v0.29.0 // indirect
 	k8s.io/kms v0.29.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00 // indirect
-	k8s.io/mount-utils v0.28.2 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.28.0 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect

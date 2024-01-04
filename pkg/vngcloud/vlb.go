@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -15,8 +16,10 @@ import (
 )
 
 const (
-	lbFormat      = "%s%s_%s_%s"
-	servicePrefix = "vcontainer_"
+	lbFormat           = "%s%s_%s_%s"
+	servicePrefix      = ""
+	defaultL4PackageID = "lbp-96b6b072-aadb-4b58-9d5f-c16ad69d36aa"
+	defaultL7PackageID = "lbp-f562b658-0fd4-4fa6-9c57-c1a803ccbf86"
 )
 
 type VLBOpts struct {
@@ -30,6 +33,7 @@ type VLBOpts struct {
 
 type vLB struct {
 	vLBSC         *client.ServiceClient
+	vServerSC     *client.ServiceClient
 	kubeClient    kubernetes.Interface
 	eventRecorder record.EventRecorder
 	extraInfo     *ExtraInfo
@@ -42,6 +46,9 @@ type serviceConfig struct {
 	flavorID          string
 	scheme            loadbalancer.CreateOptsSchemeOpt
 	lbType            loadbalancer.CreateOptsTypeOpt
+	clusterID         string
+	projectID         string
+	vpcID             string
 }
 
 func (s *vLB) GetLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service) (*corev1.LoadBalancerStatus, bool, error) {
@@ -49,7 +56,7 @@ func (s *vLB) GetLoadBalancer(ctx context.Context, clusterName string, service *
 }
 
 func (s *vLB) GetLoadBalancerName(_ context.Context, clusterName string, service *corev1.Service) string {
-	return utils.Sprintf255(lbFormat, servicePrefix, clusterName, service.Namespace, service.Name)
+	return utils.Sprintf50(lbFormat, servicePrefix, clusterName, service.Namespace, service.Name)
 }
 
 func (s *vLB) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *corev1.Service, nodes []*corev1.Node) (*corev1.LoadBalancerStatus, error) {
@@ -70,13 +77,20 @@ func (s *vLB) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string,
 // ************************************************** PRIVATE METHODS **************************************************
 
 func (s *vLB) ensureLoadBalancer(pCtx context.Context, pClusterName string, pService *corev1.Service, pNodes []*corev1.Node) (rLbs *corev1.LoadBalancerStatus, rErr error) {
-	svcConf := new(serviceConfig)
+	svcConf := &serviceConfig{
+		clusterID: pClusterName,
+		projectID: s.extraInfo.ProjectID,
+	}
 
 	// Update the service annotations(e.g. add vcontainer.vngcloud.vn/load-balancer-id) in the end if it doesn't exist
 	patcher := newServicePatcher(s.kubeClient, pService)
 	defer func() {
 		rErr = patcher.Patch(pCtx, rErr)
 	}()
+
+	if rErr = s.checkService(pService, pNodes, svcConf); rErr != nil {
+		return nil, rErr
+	}
 
 	pLbName := s.GetLoadBalancerName(pCtx, pClusterName, pService)
 
@@ -110,20 +124,49 @@ func (s *vLB) checkService(pService *corev1.Service, pNodes []*corev1.Node, pSer
 		pServiceConfig.internal = getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false)
 	}
 
+	itsCluster, err := cluster.Get(s.vServerSC, cluster.NewGetOpts(pServiceConfig.projectID, pServiceConfig.clusterID))
+	if err != nil {
+		klog.Errorf("failed to get cluster %s: %v", pServiceConfig.clusterID, err)
+		return err
+	}
+
+	if itsCluster == nil {
+		return fmt.Errorf("cluster %s not found", pServiceConfig.clusterID)
+	}
+
+	pServiceConfig.vpcID = itsCluster.VpcID
+	if !getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false) {
+		pServiceConfig.internal = true
+	}
+
+	switch lbType := getStringFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerType, "layer-4"); lbType {
+	case "layer-7":
+		pServiceConfig.lbType = loadbalancer.CreateOptsTypeOptLayer7
+		pServiceConfig.flavorID = getStringFromServiceAnnotation(pService, ServiceAnnotationPackageID, defaultL7PackageID)
+	default:
+		pServiceConfig.lbType = loadbalancer.CreateOptsTypeOptLayer4
+		pServiceConfig.flavorID = getStringFromServiceAnnotation(pService, ServiceAnnotationPackageID, defaultL4PackageID)
+	}
+
 	return nil
 }
 
 func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *corev1.Service, pNodes []*corev1.Node, pServiceConfig *serviceConfig) error {
+	opts := &loadbalancer.CreateOpts{
+		Scheme:    loadbalancer.CreateOptsSchemeOptInternet,
+		Type:      pServiceConfig.lbType,
+		Name:      pLbName,
+		PackageID: pServiceConfig.flavorID,
+		SubnetID:  pServiceConfig.vpcID,
+	}
+
+	if pServiceConfig.internal {
+		opts.Scheme = loadbalancer.CreateOptsSchemeOptInternal
+	}
+
 	mc := metrics.NewMetricContext("loadbalancer", "create")
 	klog.InfoS("CreateLoadBalancer", "cluster", pClusterName, "service", klog.KObj(pService), "lbName", pLbName)
-	newLb, err := loadbalancer.Create(s.vLBSC, loadbalancer.NewCreateOpts(
-		s.extraInfo.ProjectID,
-		&loadbalancer.CreateOpts{
-			Name:      pLbName,
-			PackageID: pServiceConfig.flavorID,
-			Scheme:    pServiceConfig.scheme,
-			Type:      pServiceConfig.lbType,
-		}))
+	newLb, err := loadbalancer.Create(s.vLBSC, loadbalancer.NewCreateOpts(s.extraInfo.ProjectID, opts))
 
 	if mc.ObserveReconcile(err) != nil {
 		klog.Errorf("failed to create load balancer %s for service %s: %v", pLbName, pService.Name, err)
