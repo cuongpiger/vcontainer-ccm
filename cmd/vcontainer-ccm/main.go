@@ -23,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/cuongpiger/vcontainer-ccm/pkg/version"
+	_ "github.com/cuongpiger/vcontainer-ccm/pkg/vngcloud"
 )
 
 func main() {

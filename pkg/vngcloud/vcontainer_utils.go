@@ -50,13 +50,13 @@ func init() {
 	lcloudProvider.RegisterCloudProvider(
 		ProviderName,
 		func(cfg io.Reader) (lcloudProvider.Interface, error) {
-			config, err := ReadConfig(cfg)
+			config, err := readConfig(cfg)
 			if err != nil {
 				klog.Warningf("failed to read config file: %v", err)
 				return nil, err
 			}
 
-			config.Metadata = GetMetadataOption(config.Metadata)
+			config.Metadata = getMetadataOption(config.Metadata)
 			cloud, err := NewVContainer(config)
 			if err != nil {
 				klog.Warningf("failed to init VContainer: %v", err)
@@ -67,7 +67,7 @@ func init() {
 	)
 }
 
-func ReadConfig(pCfg io.Reader) (Config, error) {
+func readConfig(pCfg io.Reader) (Config, error) {
 	if pCfg == nil {
 		return Config{}, lvconSdkErr.NewErrEmptyConfig("", "config file is empty")
 	}
@@ -93,7 +93,7 @@ func ReadConfig(pCfg io.Reader) (Config, error) {
 	return config, nil
 }
 
-func GetMetadataOption(pMetadata metadata.Opts) metadata.Opts {
+func getMetadataOption(pMetadata metadata.Opts) metadata.Opts {
 	if pMetadata.SearchOrder == "" {
 		pMetadata.SearchOrder = fmt.Sprintf("%s,%s", metadata.ConfigDriveID, metadata.MetadataID)
 	}
