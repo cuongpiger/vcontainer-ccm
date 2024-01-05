@@ -6,11 +6,17 @@ import (
 	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
+	obj2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener/obj"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer/obj"
+	obj3 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool/obj"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"strings"
 
 	"github.com/vngcloud/vcontainer-sdk/client"
 )
@@ -48,7 +54,12 @@ type serviceConfig struct {
 	lbType            loadbalancer.CreateOptsTypeOpt
 	clusterID         string
 	projectID         string
-	vpcID             string
+	subnetID          string
+}
+
+type listenerKey struct {
+	Protocol string
+	Port     int
 }
 
 func (s *vLB) GetLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service) (*corev1.LoadBalancerStatus, bool, error) {
@@ -56,7 +67,7 @@ func (s *vLB) GetLoadBalancer(ctx context.Context, clusterName string, service *
 }
 
 func (s *vLB) GetLoadBalancerName(_ context.Context, clusterName string, service *corev1.Service) string {
-	return utils.Sprintf50(lbFormat, servicePrefix, clusterName, service.Namespace, service.Name)
+	return utils.Sprintf50(lbFormat, servicePrefix, clusterName[:21], service.Namespace, service.Name)
 }
 
 func (s *vLB) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *corev1.Service, nodes []*corev1.Node) (*corev1.LoadBalancerStatus, error) {
@@ -82,6 +93,8 @@ func (s *vLB) ensureLoadBalancer(pCtx context.Context, pClusterName string, pSer
 		projectID: s.extraInfo.ProjectID,
 	}
 
+	createdNewLB := true // change to false later
+
 	// Update the service annotations(e.g. add vcontainer.vngcloud.vn/load-balancer-id) in the end if it doesn't exist
 	patcher := newServicePatcher(s.kubeClient, pService)
 	defer func() {
@@ -95,7 +108,36 @@ func (s *vLB) ensureLoadBalancer(pCtx context.Context, pClusterName string, pSer
 	pLbName := s.GetLoadBalancerName(pCtx, pClusterName, pService)
 
 	klog.InfoS("EnsureLoadBalancer", "cluster", pClusterName, "service", klog.KObj(pService))
-	rErr = s.createLoadBalancer(pLbName, pClusterName, pService, pNodes, svcConf)
+	lb, rErr := s.createLoadBalancer(pLbName, pClusterName, pService, pNodes, svcConf)
+
+	if createdNewLB {
+		curListeners, err := listener.GetBasedLoadBalancer(s.vLBSC, listener.NewGetBasedLoadBalancerOpts(s.extraInfo.ProjectID, lb.UUID))
+		if err != nil {
+			klog.Errorf("failed to get listeners for load balancer %s: %v", lb.UUID, err)
+			return nil, err
+		}
+
+		if len(curListeners) > 0 {
+			klog.Infof("Load balancer %s has %d listeners", lb.UUID, len(curListeners))
+			curListenerMapping := make(map[listenerKey]*obj2.Listener)
+			for i, l := range curListeners {
+				key := listenerKey{
+					Protocol: l.Protocol,
+					Port:     l.ProtocolPort}
+				curListenerMapping[key] = curListeners[i]
+			}
+			klog.V(4).InfoS("Existing listeners", "portProtocolMapping", curListenerMapping)
+
+			if err = s.checkListenerPorts(pService, curListenerMapping, true, pLbName); err != nil {
+				klog.Errorf("Detected conflict ports for load balancer %s: %v", lb.UUID, err)
+				return nil, err
+			}
+
+			for portIndex, port := range pService.Spec.Ports {
+
+			}
+		}
+	}
 
 	return nil, nil
 }
@@ -134,7 +176,7 @@ func (s *vLB) checkService(pService *corev1.Service, pNodes []*corev1.Node, pSer
 		return fmt.Errorf("cluster %s not found", pServiceConfig.clusterID)
 	}
 
-	pServiceConfig.vpcID = itsCluster.VpcID
+	pServiceConfig.subnetID = itsCluster.SubnetID
 	if !getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false) {
 		pServiceConfig.internal = true
 	}
@@ -151,13 +193,13 @@ func (s *vLB) checkService(pService *corev1.Service, pNodes []*corev1.Node, pSer
 	return nil
 }
 
-func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *corev1.Service, pNodes []*corev1.Node, pServiceConfig *serviceConfig) error {
+func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *corev1.Service, pNodes []*corev1.Node, pServiceConfig *serviceConfig) (*obj.LoadBalancer, error) {
 	opts := &loadbalancer.CreateOpts{
 		Scheme:    loadbalancer.CreateOptsSchemeOptInternet,
 		Type:      pServiceConfig.lbType,
 		Name:      pLbName,
 		PackageID: pServiceConfig.flavorID,
-		SubnetID:  pServiceConfig.vpcID,
+		SubnetID:  pServiceConfig.subnetID,
 	}
 
 	if pServiceConfig.internal {
@@ -170,10 +212,76 @@ func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *corev1.
 
 	if mc.ObserveReconcile(err) != nil {
 		klog.Errorf("failed to create load balancer %s for service %s: %v", pLbName, pService.Name, err)
-		return err
+		return nil, err
 	}
 
-	klog.Infof("Created load balancer %s for service %s", newLb.UUID, pService.Name)
+	klog.Infof("Created load balancer %s for service %s, waiting it will be ready", newLb.UUID, pService.Name)
+	newLb, err = s.waitLoadBalancerReady(newLb.UUID)
+	if err != nil {
+		klog.Errorf("failed to wait load balancer %s for service %s: %v", newLb.UUID, pService.Name, err)
+		// delete this loadbalancer
+		if err2 := loadbalancer.Delete(s.vLBSC, loadbalancer.NewDeleteOpts(s.extraInfo.ProjectID, newLb.UUID)); err2 != nil {
+			klog.Errorf("failed to delete load balancer %s for service %s after creating timeout: %v", newLb.UUID, pService.Name, err2)
+			return nil, fmt.Errorf("failed to delete load balancer %s for service %s after creating timeout: %v", newLb.UUID, pService.Name, err2)
+		}
+
+		return nil, err
+	}
+
+	return newLb, nil
+}
+
+func (s *vLB) waitLoadBalancerReady(pLbID string) (*obj.LoadBalancer, error) {
+	klog.Infof("Waiting for load balancer %s to be ready", pLbID)
+	var lb *obj.LoadBalancer
+
+	err := wait.ExponentialBackoff(wait.Backoff{
+		Duration: waitLoadbalancerInitDelay,
+		Factor:   waitLoadbalancerFactor,
+		Steps:    waitLoadbalancerActiveSteps,
+	}, func() (done bool, err error) {
+		mc := metrics.NewMetricContext("loadbalancer", "get")
+		lb, err := loadbalancer.Get(s.vLBSC, loadbalancer.NewGetOpts(s.extraInfo.ProjectID, pLbID))
+		if mc.ObserveReconcile(err) != nil {
+			klog.Errorf("failed to get load balancer %s: %v", pLbID, err)
+			return false, err
+		}
+
+		if strings.ToUpper(lb.Status) == ACTIVE_LOADBALANCER_STATUS {
+			klog.Infof("Load balancer %s is ready", pLbID)
+			return true, nil
+		}
+
+		klog.Infof("Load balancer %s is not ready yet, wating...", pLbID)
+		return false, nil
+	})
+
+	if wait.Interrupted(err) {
+		err = fmt.Errorf("timeout waiting for the loadbalancer %s with lb status %s", pLbID, lb.Status)
+	}
+
+	return lb, err
+}
+
+// checkListenerPorts checks if there is conflict for ports.
+func (s *vLB) checkListenerPorts(service *corev1.Service, curListenerMapping map[listenerKey]*obj2.Listener, isLBOwner bool, lbName string) error {
+	for _, svcPort := range service.Spec.Ports {
+		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
+
+		if l, isPresent := curListenerMapping[key]; isPresent {
+			// The listener is used by this Service if LB name is in the tags, or
+			// the listener was created by this Service.
+			if isLBOwner || strings.Contains(lbName, l.Name[:-len(fmt.Sprintf("%d", l.ProtocolPort))]) {
+				continue
+			} else {
+				return fmt.Errorf("the listener port %d already exists", svcPort.Port)
+			}
+		}
+	}
 
 	return nil
+}
+
+func (s *vLB) ensurePool(pLbID string, pService *corev1.Service, pNodes []*corev1.Node, pServiceConfig *serviceConfig) (*obj3.Pool, error) {
+	return nil, nil
 }
