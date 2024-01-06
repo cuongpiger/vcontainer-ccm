@@ -107,7 +107,7 @@ func (s *vLB) ensureLoadBalancer(
 	}
 
 	// Get this loadbalancer name
-	userLbs, err := lLoadBalancerV2.ListBySubnetID(s.vLBSC, lLoadBalancerV2.NewListBySubnetIDOpts(s.getProjectID(), userCluster.SubnetID))
+	userLbs, err := lLoadBalancerV2.List(s.vLBSC, lLoadBalancerV2.NewListOpts(s.getProjectID()))
 	if err != nil {
 		klog.Warningf("failed to list load balancers for cluster %s in the subnet %s: %v", pClusterID, userCluster.SubnetID, err)
 		return nil, err
@@ -515,7 +515,7 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 	}
 
 	// Get this loadbalancer name
-	userLbs, err := lLoadBalancerV2.ListBySubnetID(s.vLBSC, lLoadBalancerV2.NewListBySubnetIDOpts(s.getProjectID(), userCluster.SubnetID))
+	userLbs, err := lLoadBalancerV2.List(s.vLBSC, lLoadBalancerV2.NewListOpts(s.getProjectID()))
 	if err != nil {
 		klog.Warningf("failed to list load balancers for cluster %s in the subnet %s: %v", pClusterID, userCluster.SubnetID, err)
 		return err
@@ -547,7 +547,7 @@ func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pSe
 	}
 
 	// Get this loadbalancer name
-	userLbs, err := lLoadBalancerV2.ListBySubnetID(s.vLBSC, lLoadBalancerV2.NewListBySubnetIDOpts(s.getProjectID(), userCluster.SubnetID))
+	userLbs, err := lLoadBalancerV2.List(s.vLBSC, lLoadBalancerV2.NewListOpts(s.getProjectID()))
 	if err != nil {
 		klog.Warningf("failed to list load balancers for cluster %s in the subnet %s: %v", pClusterID, userCluster.SubnetID, err)
 		return nil, false, err
