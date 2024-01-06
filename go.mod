@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/cuongpiger/joat v0.0.3
 	github.com/spf13/pflag v1.0.5
-	github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240105095300-d24166f89ed0
+	github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240106100218-5b059584f372
 	github.com/vngcloud/vcontainer-storage-interface v0.1.1
 	golang.org/x/sys v0.13.0
 	gopkg.in/gcfg.v1 v1.2.3

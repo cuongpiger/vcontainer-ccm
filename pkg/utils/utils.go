@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
 
-	v1 "k8s.io/api/core/v1"
+	lCoreV1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
@@ -13,7 +15,7 @@ import (
 )
 
 // PatchService makes patch request to the Service object.
-func PatchService(ctx context.Context, client clientset.Interface, cur, mod *v1.Service) error {
+func PatchService(ctx context.Context, client clientset.Interface, cur, mod *lCoreV1.Service) error {
 	curJSON, err := json.Marshal(cur)
 	if err != nil {
 		return fmt.Errorf("failed to serialize current service object: %s", err)
@@ -24,7 +26,7 @@ func PatchService(ctx context.Context, client clientset.Interface, cur, mod *v1.
 		return fmt.Errorf("failed to serialize modified service object: %s", err)
 	}
 
-	patch, err := strategicpatch.CreateTwoWayMergePatch(curJSON, modJSON, v1.Service{})
+	patch, err := strategicpatch.CreateTwoWayMergePatch(curJSON, modJSON, lCoreV1.Service{})
 	if err != nil {
 		return fmt.Errorf("failed to create 2-way merge patch: %s", err)
 	}
@@ -53,4 +55,14 @@ func CutString50(original string) string {
 		ret = original[:50]
 	}
 	return ret
+}
+
+func GetVLBProtocolOpt(pPort lCoreV1.ServicePort) pool.CreateOptsProtocolOpt {
+	// Only support TCP at this version
+	return pool.CreateOptsProtocolOptTCP
+}
+
+func GetListenerProtocolOpt(pPort lCoreV1.ServicePort) listener.CreateOptsListenerProtocolOpt {
+	// Only support TCP at this version
+	return listener.CreateOptsListenerProtocolOptTCP
 }

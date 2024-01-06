@@ -24,3 +24,17 @@ const (
 const (
 	ACTIVE_LOADBALANCER_STATUS = "ACTIVE"
 )
+
+const (
+	healthMonitorHealthyThreshold   = 3
+	healthMonitorUnhealthyThreshold = 3
+	healthMonitorInterval           = 30
+	healthMonitorTimeout            = 5
+)
+
+const (
+	listenerDefaultCIDR       = "0.0.0.0/0"
+	listenerTimeoutClient     = 50
+	listenerTimeoutConnection = 5
+	listenerTimeoutMember     = 50
+)
