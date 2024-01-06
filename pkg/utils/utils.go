@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
-	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
 
 	lCoreV1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
+
+	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
+	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
+
+	"github.com/cuongpiger/vcontainer-ccm/pkg/consts"
 )
 
 // PatchService makes patch request to the Service object.
@@ -65,4 +68,31 @@ func GetVLBProtocolOpt(pPort lCoreV1.ServicePort) pool.CreateOptsProtocolOpt {
 func GetListenerProtocolOpt(pPort lCoreV1.ServicePort) listener.CreateOptsListenerProtocolOpt {
 	// Only support TCP at this version
 	return listener.CreateOptsListenerProtocolOptTCP
+}
+
+func GenPoolName(pClusterID, pNamespace, pServiceName string) string {
+	return fmt.Sprintf("%s-%s-%s", pClusterID[:21], pNamespace, pServiceName)
+}
+
+/*
+GenLoadBalancerName generates a load balancer name from a cluster ID and a service. The length of the name is limited to
+50 characters. The format of the name is: clu-<cluster_id>-<namespace>-<service_name>.
+
+PARAMS:
+- pClusterID: cluster ID
+- pService: service object
+RETURN:
+- load balancer name
+*/
+func GenLoadBalancerName(pClusterID string, pService *lCoreV1.Service) string {
+	lbName := fmt.Sprintf(
+		"%s-%s-%s-%s", consts.DEFAULT_LB_PREFIX_NAME, pClusterID[8:19], pService.Namespace, pService.Name)
+	return lbName[:MinInt(len(lbName), consts.DEFAULT_PORTAL_NAME_LENGTH)]
+}
+
+func MinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

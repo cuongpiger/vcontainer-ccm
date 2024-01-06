@@ -48,18 +48,6 @@ type vLB struct {
 	extraInfo     *ExtraInfo
 }
 
-type serviceConfig struct {
-	internal          bool
-	lbID              string
-	preferredIPFamily corev1.IPFamily // preferred (the first) IP family indicated in service's `spec.ipFamilies`
-	flavorID          string
-	scheme            loadbalancer.CreateOptsSchemeOpt
-	lbType            loadbalancer.CreateOptsTypeOpt
-	clusterID         string
-	projectID         string
-	subnetID          string
-}
-
 type listenerKey struct {
 	Protocol string
 	Port     int
@@ -69,8 +57,8 @@ func (s *vLB) GetLoadBalancer(ctx context.Context, clusterName string, service *
 	return nil, false, nil
 }
 
-func (s *vLB) GetLoadBalancerName(_ context.Context, clusterName string, service *corev1.Service) string {
-	return utils.Sprintf50(lbFormat, servicePrefix, clusterName[:21], service.Namespace, service.Name)
+func (s *vLB) GetLoadBalancerName(_ context.Context, pClusterName string, pService *corev1.Service) string {
+	return utils.GenLoadBalancerName(pClusterName, pService)
 }
 
 func (s *vLB) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *corev1.Service, nodes []*corev1.Node) (*corev1.LoadBalancerStatus, error) {
@@ -90,10 +78,19 @@ func (s *vLB) EnsureLoadBalancerDeleted(ctx context.Context, clusterName string,
 
 // ************************************************** PRIVATE METHODS **************************************************
 
-func (s *vLB) ensureLoadBalancer(pCtx context.Context, pClusterName string, pService *corev1.Service, pNodes []*corev1.Node) (rLbs *corev1.LoadBalancerStatus, rErr error) {
+func (s *vLB) ensureLoadBalancer(
+	pCtx context.Context, pClusterName string, pService *corev1.Service, pNodes []*corev1.Node) (rLbs *corev1.LoadBalancerStatus, rErr error) {
+
+	// Get the cluster info from the cluster ID that user provided from the K8s secret
+	userCluster, err := cluster.Get(s.vServerSC, cluster.NewGetOpts(s.getProjectID(), pClusterName))
+	if cluster.IsErrClusterNotFound(err) {
+		klog.Warningf("cluster %s not found, please check the secret resource in the Helm template", pClusterName)
+		return nil, err
+	}
+
 	svcConf := &serviceConfig{
-		clusterID: pClusterName,
-		projectID: s.extraInfo.ProjectID,
+		cluster:   userCluster,
+		projectID: s.getProjectID(),
 	}
 
 	createdNewLB := true // change to false later
@@ -156,17 +153,7 @@ func (s *vLB) checkService(pService *corev1.Service, pNodes []*corev1.Node, pSer
 		pServiceConfig.internal = getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false)
 	}
 
-	itsCluster, err := cluster.Get(s.vServerSC, cluster.NewGetOpts(pServiceConfig.projectID, pServiceConfig.clusterID))
-	if err != nil {
-		klog.Errorf("failed to get cluster %s: %v", pServiceConfig.clusterID, err)
-		return err
-	}
-
-	if itsCluster == nil {
-		return fmt.Errorf("cluster %s not found", pServiceConfig.clusterID)
-	}
-
-	pServiceConfig.subnetID = itsCluster.SubnetID
+	pServiceConfig.subnetID = pServiceConfig.getClusterSubnetID()
 	if !getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false) {
 		pServiceConfig.internal = true
 	}
@@ -404,4 +391,8 @@ func (s *vLB) createLoadBalancerStatus(addr string) *corev1.LoadBalancerStatus {
 	// Default to IP
 	status.Ingress = []corev1.LoadBalancerIngress{{IP: addr}}
 	return status
+}
+
+func (s *vLB) getProjectID() string {
+	return s.extraInfo.ProjectID
 }
