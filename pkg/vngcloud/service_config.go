@@ -17,6 +17,7 @@ type serviceConfig struct {
 	projectID         string
 	subnetID          string
 	cluster           *lClusterObjV2.Cluster
+	isOwner           bool
 }
 
 func (s *serviceConfig) getClusterID() string {

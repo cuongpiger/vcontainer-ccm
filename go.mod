@@ -5,9 +5,7 @@ go 1.21
 require (
 	github.com/cuongpiger/joat v0.0.3
 	github.com/spf13/pflag v1.0.5
-	github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240106104848-2f196344c751
-	github.com/vngcloud/vcontainer-storage-interface v0.1.1
-	golang.org/x/sys v0.16.0
+	github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240106161018-f254ef521e27
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.29.0
 	k8s.io/apimachinery v0.29.0
@@ -15,7 +13,6 @@ require (
 	k8s.io/cloud-provider v0.29.0
 	k8s.io/component-base v0.29.0
 	k8s.io/klog/v2 v2.110.1
-	k8s.io/mount-utils v0.29.0
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 )
 
@@ -30,7 +27,6 @@ require (
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
-	github.com/container-storage-interface/spec v1.8.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -65,7 +61,6 @@ require (
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
-	github.com/moby/sys/mountinfo v0.6.2 // indirect
 	github.com/moby/term v0.0.0-20221205130635-1aeaba878587 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -104,6 +99,7 @@ require (
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
+	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/term v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect

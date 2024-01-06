@@ -1,6 +1,6 @@
 package metadata
 
-import "github.com/vngcloud/vcontainer-storage-interface/csi/utils"
+import "github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 
 type IMetadata interface {
 	GetInstanceID() (string, error)

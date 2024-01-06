@@ -3,10 +3,8 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/mount"
 	"io"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/exec"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,36 +55,10 @@ func Get(order string) (*Metadata, error) {
 // ************************************************** PRIVATE METHODS **************************************************
 
 func getFromConfigDrive(metadataVersion string) (*Metadata, error) {
-	// Try to read instance UUID from config drive.
-	dev := "/dev/disk/by-label/" + configDriveLabel
-	if _, err := os.Stat(dev); os.IsNotExist(err) {
-		out, err := exec.New().Command(
-			"blkid", "-l",
-			"-t", "LABEL="+configDriveLabel,
-			"-o", "device",
-		).CombinedOutput()
-		if err != nil {
-			return nil, fmt.Errorf("getFromConfigDrive; unable to run blkid; ERR: %v", err)
-		}
-		dev = strings.TrimSpace(string(out))
-	}
-
 	mntdir := os.TempDir()
 	defer os.Remove(mntdir)
 
-	klog.V(4).Infof("getFromConfigDrive; attempting to mount configdrive %s on %s", dev, mntdir)
-
-	mounter := mount.GetMountProvider().Mounter()
-	err := mounter.Mount(dev, mntdir, "iso9660", []string{"ro"})
-	if err != nil {
-		err = mounter.Mount(dev, mntdir, "vfat", []string{"ro"})
-	}
-	if err != nil {
-		return nil, fmt.Errorf("getFromConfigDrive; error mounting configdrive %s; ERR: %v", dev, err)
-	}
-	defer func() { _ = mounter.Unmount(mntdir) }()
-
-	klog.V(4).Infof("getFromConfigDrive; configdrive mounted on %s", mntdir)
+	klog.V(4).Infof("getFromConfigDrive; attempting to mount configdrive on %s", mntdir)
 
 	configDrivePath := getConfigDrivePath(metadataVersion)
 	f, err := os.Open(

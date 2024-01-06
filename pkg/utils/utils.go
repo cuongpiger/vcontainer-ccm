@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	lCoreV1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +17,10 @@ import (
 
 	"github.com/cuongpiger/vcontainer-ccm/pkg/consts"
 )
+
+type MyDuration struct {
+	time.Duration
+}
 
 // PatchService makes patch request to the Service object.
 func PatchService(ctx context.Context, client clientset.Interface, cur, mod *lCoreV1.Service) error {
@@ -70,13 +75,32 @@ func GetListenerProtocolOpt(pPort lCoreV1.ServicePort) listener.CreateOptsListen
 	return listener.CreateOptsListenerProtocolOptTCP
 }
 
-func GenPoolName(pClusterID, pNamespace, pServiceName string) string {
-	return fmt.Sprintf("%s-%s-%s", pClusterID[:21], pNamespace, pServiceName)
+func GenPoolName(pClusterID string, pService *lCoreV1.Service, pProtocol string) string {
+	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME):]
+	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - 1
+	if delta >= len(pProtocol) {
+		return fmt.Sprintf("%s-%s", lbName, pProtocol)
+	}
+
+	delta = consts.DEFAULT_PORTAL_NAME_LENGTH - len(pProtocol) - 1
+	return fmt.Sprintf("%s-%s", lbName[:delta], pProtocol)
+}
+
+func GenListenerName(pClusterID string, pService *lCoreV1.Service, pProtocol string, pPort int) string {
+	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME):]
+	port := fmt.Sprintf("%d", pPort)
+	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - len(port) - 2
+	if delta >= len(pProtocol) {
+		return fmt.Sprintf("%s-%s-%s", lbName, pProtocol, port)
+	}
+
+	delta = consts.DEFAULT_PORTAL_NAME_LENGTH - len(pProtocol) - len(port) - 2
+	return fmt.Sprintf("%s-%s-%s", lbName[:delta], pProtocol, port)
 }
 
 /*
 GenLoadBalancerName generates a load balancer name from a cluster ID and a service. The length of the name is limited to
-50 characters. The format of the name is: clu-<cluster_id>-<namespace>-<service_name>.
+50 characters. The format of the name is: clu-<cluster_id>-<service_name>_<namespace>.
 
 PARAMS:
 - pClusterID: cluster ID
@@ -86,7 +110,7 @@ RETURN:
 */
 func GenLoadBalancerName(pClusterID string, pService *lCoreV1.Service) string {
 	lbName := fmt.Sprintf(
-		"%s-%s-%s-%s", consts.DEFAULT_LB_PREFIX_NAME, pClusterID[8:19], pService.Namespace, pService.Name)
+		"%s-%s-%s_%s", consts.DEFAULT_LB_PREFIX_NAME, pClusterID[8:19], pService.Name, pService.Namespace)
 	return lbName[:MinInt(len(lbName), consts.DEFAULT_PORTAL_NAME_LENGTH)]
 }
 
