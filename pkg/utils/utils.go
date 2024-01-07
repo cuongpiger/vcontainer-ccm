@@ -14,6 +14,7 @@ import (
 
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
+	lSecRuleV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/extensions/secgroup_rule"
 
 	"github.com/cuongpiger/vcontainer-ccm/pkg/consts"
 )
@@ -75,6 +76,19 @@ func GetListenerProtocolOpt(pPort lCoreV1.ServicePort) listener.CreateOptsListen
 	return listener.CreateOptsListenerProtocolOptTCP
 }
 
+func GetSecgroupRuleProtocolOpt(pPort lCoreV1.ServicePort) lSecRuleV2.CreateOptsProtocolOpt {
+	// Only support TCP at this version
+	return lSecRuleV2.CreateOptsProtocolOptTCP
+}
+
+func GetSecgroupRuleEthernetType(pIpFam lCoreV1.IPFamily) lSecRuleV2.CreateOptsEtherTypeOpt {
+	if pIpFam == lCoreV1.IPv6Protocol {
+		return lSecRuleV2.CreateOptsEtherTypeOptIPv6
+	}
+
+	return lSecRuleV2.CreateOptsEtherTypeOptIPv4
+}
+
 func GenPoolName(pClusterID string, pService *lCoreV1.Service, pProtocol string) string {
 	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
 	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - 1
@@ -87,6 +101,29 @@ func GenPoolName(pClusterID string, pService *lCoreV1.Service, pProtocol string)
 }
 
 func GenListenerName(pClusterID string, pService *lCoreV1.Service, pProtocol string, pPort int) string {
+	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
+	port := fmt.Sprintf("%d", pPort)
+	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - len(port) - 2
+	if delta >= len(pProtocol) {
+		return fmt.Sprintf("%s-%s-%s", lbName, pProtocol, port)
+	}
+
+	delta = consts.DEFAULT_PORTAL_NAME_LENGTH - len(pProtocol) - len(port) - 2
+	return fmt.Sprintf("%s-%s-%s", lbName[:delta], pProtocol, port)
+}
+
+func GenSecgroupDescription(pClusterID string, pService *lCoreV1.Service, pLbID string) string {
+	lbName := GenLoadBalancerDescription(pClusterID, pService)
+	delta := consts.DEFAULT_PORTAL_DESCRIPTION_LENGTH - len(lbName) - 1
+	if delta >= len(pLbID) {
+		return fmt.Sprintf("%s-%s", lbName, pLbID)
+	}
+
+	delta = consts.DEFAULT_PORTAL_DESCRIPTION_LENGTH - len(pLbID) - 1
+	return fmt.Sprintf("%s-%s", lbName[:delta], pLbID)
+}
+
+func GenSecgroupName(pClusterID string, pService *lCoreV1.Service, pProtocol string, pPort int) string {
 	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
 	port := fmt.Sprintf("%d", pPort)
 	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - len(port) - 2
@@ -112,6 +149,12 @@ func GenLoadBalancerName(pClusterID string, pService *lCoreV1.Service) string {
 	lbName := fmt.Sprintf(
 		"%s-%s-%s_%s", consts.DEFAULT_LB_PREFIX_NAME, pClusterID[8:19], pService.Name, pService.Namespace)
 	return lbName[:MinInt(len(lbName), consts.DEFAULT_PORTAL_NAME_LENGTH)]
+}
+
+func GenLoadBalancerDescription(pClusterID string, pService *lCoreV1.Service) string {
+	lbName := fmt.Sprintf(
+		"%s-%s-%s_%s", consts.DEFAULT_LB_PREFIX_NAME, pClusterID[8:19], pService.Name, pService.Namespace)
+	return lbName[:MinInt(len(lbName), consts.DEFAULT_PORTAL_DESCRIPTION_LENGTH)]
 }
 
 func MinInt(a, b int) int {

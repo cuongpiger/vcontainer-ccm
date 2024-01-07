@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/utils"
+	lUtils "github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/errors"
-	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
+	lClusterV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
 	lClusterObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster/obj"
 	lListenerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
 	lListenerObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener/obj"
@@ -14,7 +14,10 @@ import (
 	lLbObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer/obj"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
 	obj3 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool/obj"
-	corev1 "k8s.io/api/core/v1"
+	lSecRuleV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/extensions/secgroup_rule"
+	lSecgroupV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/secgroup"
+	lSubnetV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/subnet"
+	lCoreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
@@ -52,19 +55,19 @@ type listenerKey struct {
 	Port     int
 }
 
-func (s *vLB) GetLoadBalancer(pCtx context.Context, pClusterID string, pService *corev1.Service) (*corev1.LoadBalancerStatus, bool, error) {
+func (s *vLB) GetLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) (*lCoreV1.LoadBalancerStatus, bool, error) {
 	mc := metrics.NewMetricContext("loadbalancer", "ensure")
 	klog.InfoS("GetLoadBalancer", "cluster", pClusterID, "service", klog.KObj(pService))
 	status, existed, err := s.ensureGetLoadBalancer(pCtx, pClusterID, pService)
 	return status, existed, mc.ObserveReconcile(err)
 }
 
-func (s *vLB) GetLoadBalancerName(_ context.Context, pClusterName string, pService *corev1.Service) string {
-	return utils.GenLoadBalancerName(pClusterName, pService)
+func (s *vLB) GetLoadBalancerName(_ context.Context, pClusterName string, pService *lCoreV1.Service) string {
+	return lUtils.GenLoadBalancerName(pClusterName, pService)
 }
 
 func (s *vLB) EnsureLoadBalancer(
-	pCtx context.Context, pClusterID string, pService *corev1.Service, pNodes []*corev1.Node) (*corev1.LoadBalancerStatus, error) {
+	pCtx context.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) (*lCoreV1.LoadBalancerStatus, error) {
 
 	mc := metrics.NewMetricContext("loadbalancer", "ensure")
 	klog.InfoS("EnsureLoadBalancer", "cluster", pClusterID, "service", klog.KObj(pService))
@@ -72,11 +75,11 @@ func (s *vLB) EnsureLoadBalancer(
 	return status, mc.ObserveReconcile(err)
 }
 
-func (s *vLB) UpdateLoadBalancer(ctx context.Context, clusterName string, service *corev1.Service, nodes []*corev1.Node) error {
+func (s *vLB) UpdateLoadBalancer(ctx context.Context, clusterName string, service *lCoreV1.Service, nodes []*lCoreV1.Node) error {
 	return nil
 }
 
-func (s *vLB) EnsureLoadBalancerDeleted(pCtx context.Context, pClusterID string, pService *corev1.Service) error {
+func (s *vLB) EnsureLoadBalancerDeleted(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) error {
 	mc := metrics.NewMetricContext("loadbalancer", "ensure")
 	klog.InfoS("EnsureLoadBalancerDeleted", "cluster", pClusterID, "service", klog.KObj(pService))
 	err := s.ensureDeleteLoadBalancer(pCtx, pClusterID, pService)
@@ -86,7 +89,7 @@ func (s *vLB) EnsureLoadBalancerDeleted(pCtx context.Context, pClusterID string,
 // ************************************************** PRIVATE METHODS **************************************************
 
 func (s *vLB) ensureLoadBalancer(
-	pCtx context.Context, pClusterID string, pService *corev1.Service, pNodes []*corev1.Node) (rLbs *corev1.LoadBalancerStatus, rErr error) {
+	pCtx context.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) (rLbs *lCoreV1.LoadBalancerStatus, rErr error) {
 
 	patcher := newServicePatcher(s.kubeClient, pService)
 	defer func() {
@@ -101,8 +104,8 @@ func (s *vLB) ensureLoadBalancer(
 	isOwner := false
 
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
-	userCluster, err := cluster.Get(s.vServerSC, cluster.NewGetOpts(s.getProjectID(), pClusterID))
-	if cluster.IsErrClusterNotFound(err) {
+	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
+	if lClusterV2.IsErrClusterNotFound(err) {
 		klog.Warningf("cluster %s not found, please check the secret resource in the Helm template", pClusterID)
 		return nil, err
 	}
@@ -187,6 +190,12 @@ func (s *vLB) ensureLoadBalancer(
 			return nil, err
 		}
 
+		// Update the security group
+		if err = s.ensureSecgroup(userLb, userCluster, pService, itemPort, svcConf); err != nil {
+			klog.Errorf("failed to update security group for load balancer %s: %v", userLb.UUID, err)
+			return nil, err
+		}
+
 		popListener(lbListeners, newListener.ID)
 	}
 	klog.V(5).Infof("Processing listeners and pools completely, next to delete the unused listeners and pools")
@@ -213,7 +222,7 @@ func (s *vLB) ensureLoadBalancer(
 	return lbStatus, nil
 }
 
-func (s *vLB) checkService(pService *corev1.Service, pNodes []*corev1.Node, pServiceConfig *serviceConfig) error {
+func (s *vLB) checkService(pService *lCoreV1.Service, pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig) error {
 	serviceName := fmt.Sprintf("%s/%s", pService.Namespace, pService.Name)
 
 	if len(pNodes) <= 0 {
@@ -231,7 +240,7 @@ func (s *vLB) checkService(pService *corev1.Service, pNodes []*corev1.Node, pSer
 	}
 
 	// If the service is
-	if pServiceConfig.preferredIPFamily == corev1.IPv6Protocol {
+	if pServiceConfig.preferredIPFamily == lCoreV1.IPv6Protocol {
 		pServiceConfig.internal = true
 	} else {
 		pServiceConfig.internal = getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false)
@@ -254,7 +263,7 @@ func (s *vLB) checkService(pService *corev1.Service, pNodes []*corev1.Node, pSer
 	return nil
 }
 
-func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *corev1.Service, pServiceConfig *serviceConfig) (*lLbObjV2.LoadBalancer, error) {
+func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *lCoreV1.Service, pServiceConfig *serviceConfig) (*lLbObjV2.LoadBalancer, error) {
 	opts := &lLoadBalancerV2.CreateOpts{
 		Scheme:    lLoadBalancerV2.CreateOptsSchemeOptInternet,
 		Type:      pServiceConfig.lbType,
@@ -327,14 +336,14 @@ func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error
 }
 
 // checkListenerPorts checks if there is conflict for ports.
-func (s *vLB) checkListenerPorts(service *corev1.Service, curListenerMapping map[listenerKey]*lListenerObjV2.Listener, pClusterID string) error {
+func (s *vLB) checkListenerPorts(service *lCoreV1.Service, curListenerMapping map[listenerKey]*lListenerObjV2.Listener, pClusterID string) error {
 	for _, svcPort := range service.Spec.Ports {
 		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
 
 		if lbListener, isPresent := curListenerMapping[key]; isPresent {
 			// The listener is used by this Service if LB name is in the tags, or
 			// the listener was created by this Service.
-			if lbListener.Name == utils.GenListenerName(pClusterID, service, string(svcPort.Protocol), int(svcPort.Port)) {
+			if lbListener.Name == lUtils.GenListenerName(pClusterID, service, string(svcPort.Protocol), int(svcPort.Port)) {
 				continue
 			} else {
 				return fmt.Errorf("the listener port %d already exists, can not use", svcPort.Port)
@@ -346,10 +355,10 @@ func (s *vLB) checkListenerPorts(service *corev1.Service, curListenerMapping map
 }
 
 func (s *vLB) ensurePool(
-	pLbID string, pService *corev1.Service, pPort corev1.ServicePort, pNodes []*corev1.Node, pServiceConfig *serviceConfig, createdNewLb bool) (*obj3.Pool, error) {
+	pLbID string, pService *lCoreV1.Service, pPort lCoreV1.ServicePort, pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig, createdNewLb bool) (*obj3.Pool, error) {
 
 	// Get the pool name
-	poolName := utils.GenPoolName(pLbID, pService, string(pPort.Protocol))
+	poolName := lUtils.GenPoolName(pLbID, pService, string(pPort.Protocol))
 
 	// Check if the pool is existed
 	if !createdNewLb {
@@ -388,10 +397,10 @@ func (s *vLB) ensurePool(
 	newPool, err := pool.Create(s.vLBSC, pool.NewCreateOpts(s.extraInfo.ProjectID, pLbID, &pool.CreateOpts{
 		Algorithm:    pool.CreateOptsAlgorithmOptRoundRobin,
 		PoolName:     poolName,
-		PoolProtocol: utils.GetVLBProtocolOpt(pPort),
+		PoolProtocol: lUtils.GetVLBProtocolOpt(pPort),
 		Members:      poolMembers,
 		HealthMonitor: pool.HealthMonitor{
-			HealthCheckProtocol: string(utils.GetVLBProtocolOpt(pPort)),
+			HealthCheckProtocol: string(lUtils.GetVLBProtocolOpt(pPort)),
 			HealthyThreshold:    healthMonitorHealthyThreshold,
 			UnhealthyThreshold:  healthMonitorUnhealthyThreshold,
 			Timeout:             healthMonitorTimeout,
@@ -414,7 +423,7 @@ func (s *vLB) ensurePool(
 	return newPool, nil
 }
 
-func prepareMembers4Pool(pNodes []*corev1.Node, pPort corev1.ServicePort, pServiceConfig *serviceConfig) ([]pool.Member, error) {
+func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pServiceConfig *serviceConfig) ([]pool.Member, error) {
 	var poolMembers []pool.Member
 
 	for _, itemNode := range pNodes {
@@ -443,23 +452,23 @@ func prepareMembers4Pool(pNodes []*corev1.Node, pPort corev1.ServicePort, pServi
 	return poolMembers, nil
 }
 
-func nodeAddressForLB(node *corev1.Node, preferredIPFamily corev1.IPFamily) (string, error) {
+func nodeAddressForLB(node *lCoreV1.Node, preferredIPFamily lCoreV1.IPFamily) (string, error) {
 	addrs := node.Status.Addresses
 	if len(addrs) == 0 {
 		return "", errors.NewErrNodeAddressNotFound(node.Name, "")
 	}
 
-	allowedAddrTypes := []corev1.NodeAddressType{corev1.NodeInternalIP, corev1.NodeExternalIP}
+	allowedAddrTypes := []lCoreV1.NodeAddressType{lCoreV1.NodeInternalIP, lCoreV1.NodeExternalIP}
 
 	for _, allowedAddrType := range allowedAddrTypes {
 		for _, addr := range addrs {
 			if addr.Type == allowedAddrType {
 				switch preferredIPFamily {
-				case corev1.IPv4Protocol:
+				case lCoreV1.IPv4Protocol:
 					if netutils.IsIPv4String(addr.Address) {
 						return addr.Address, nil
 					}
-				case corev1.IPv6Protocol:
+				case lCoreV1.IPv6Protocol:
 					if netutils.IsIPv6String(addr.Address) {
 						return addr.Address, nil
 					}
@@ -473,7 +482,7 @@ func nodeAddressForLB(node *corev1.Node, preferredIPFamily corev1.IPFamily) (str
 	return "", errors.NewErrNodeAddressNotFound(node.Name, "")
 }
 
-func (s *vLB) ensureListener(pLbID, pPoolID, pLbName string, pPort corev1.ServicePort) (*lListenerObjV2.Listener, error) {
+func (s *vLB) ensureListener(pLbID, pPoolID, pLbName string, pPort lCoreV1.ServicePort) (*lListenerObjV2.Listener, error) {
 	mc := metrics.NewMetricContext("listener", "create")
 	newListener, err := lListenerV2.Create(s.vLBSC, lListenerV2.NewCreateOpts(
 		s.extraInfo.ProjectID,
@@ -481,8 +490,8 @@ func (s *vLB) ensureListener(pLbID, pPoolID, pLbName string, pPort corev1.Servic
 		&lListenerV2.CreateOpts{
 			AllowedCidrs:         listenerDefaultCIDR,
 			DefaultPoolId:        pPoolID,
-			ListenerName:         utils.GenListenerName(pLbID, nil, string(pPort.Protocol), int(pPort.Port)),
-			ListenerProtocol:     utils.GetListenerProtocolOpt(pPort),
+			ListenerName:         lUtils.GenListenerName(pLbID, nil, string(pPort.Protocol), int(pPort.Port)),
+			ListenerProtocol:     lUtils.GetListenerProtocolOpt(pPort),
 			ListenerProtocolPort: int(pPort.Port),
 			TimeoutClient:        listenerTimeoutClient,
 			TimeoutMember:        listenerTimeoutMember,
@@ -498,10 +507,10 @@ func (s *vLB) ensureListener(pLbID, pPoolID, pLbName string, pPort corev1.Servic
 	return newListener, nil
 }
 
-func (s *vLB) createLoadBalancerStatus(addr string) *corev1.LoadBalancerStatus {
-	status := &corev1.LoadBalancerStatus{}
+func (s *vLB) createLoadBalancerStatus(addr string) *lCoreV1.LoadBalancerStatus {
+	status := &lCoreV1.LoadBalancerStatus{}
 	// Default to IP
-	status.Ingress = []corev1.LoadBalancerIngress{{IP: addr}}
+	status.Ingress = []lCoreV1.LoadBalancerIngress{{IP: addr}}
 	return status
 }
 
@@ -519,10 +528,10 @@ func (s *vLB) findLoadBalancer(pLbName string, pLbs []*lLbObjV2.LoadBalancer, pC
 	return nil
 }
 
-func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, pService *corev1.Service) error {
+func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) error {
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
-	userCluster, err := cluster.Get(s.vServerSC, cluster.NewGetOpts(s.getProjectID(), pClusterID))
-	if cluster.IsErrClusterNotFound(err) {
+	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
+	if lClusterV2.IsErrClusterNotFound(err) {
 		klog.Warningf("cluster %s not found, please check the secret resource in the Helm template", pClusterID)
 		return err
 	}
@@ -536,15 +545,76 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 
 	// Get the loadbalancer by subnetID and loadbalancer name
 	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
+	lbUUID := ""
 	for _, itemLb := range userLbs {
-		if s.findLoadBalancer(lbName, userLbs, userCluster) != nil {
+		if foundLb := s.findLoadBalancer(lbName, userLbs, userCluster); foundLb != nil {
 			err := lLoadBalancerV2.Delete(s.vLBSC, lLoadBalancerV2.NewDeleteOpts(s.getProjectID(), itemLb.UUID))
 			if err != nil {
 				klog.Errorf("failed to delete load balancer %s: %v", itemLb.UUID, err)
 				return err
 			}
 
+			lbUUID = itemLb.UUID
 			break
+		}
+	}
+
+	var deleteSecgroup []string
+	var validSecgroupUUIDs []string
+	if len(lbUUID) > 0 {
+		for _, secgroupUUID := range userCluster.MinionClusterSecGroupIDList {
+			secgroup, err := lSecgroupV2.Get(s.vServerSC, lSecgroupV2.NewGetOpts(s.getProjectID(), secgroupUUID))
+			if err != nil {
+				klog.Warningf("failed to get secgroup %s: %v", secgroupUUID, err)
+				continue
+			}
+
+			if strings.Contains(secgroup.Description, lbUUID) {
+				deleteSecgroup = append(deleteSecgroup, secgroupUUID)
+			} else {
+				validSecgroupUUIDs = append(validSecgroupUUIDs, secgroupUUID)
+			}
+		}
+	}
+
+	if len(deleteSecgroup) > 0 {
+		_, err := lClusterV2.UpdateSecgroup(
+			s.vServerSC,
+			lClusterV2.NewUpdateSecgroupOpts(
+				s.getProjectID(),
+				&lClusterV2.UpdateSecgroupOpts{
+					ClusterID:   pClusterID,
+					Master:      false,
+					SecGroupIds: validSecgroupUUIDs}))
+
+		if err != nil {
+			klog.Errorf("failed to update secgroup from cluster %s: %v", pClusterID, err)
+			return err
+		}
+	}
+
+	userCluster, err = lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
+	if err != nil {
+		klog.Errorf("failed to get cluster %s to recheck after update secgroup: %v", pClusterID, err)
+	}
+
+	secgroupMapping := make(map[string]bool)
+	for _, secgroupUUID := range userCluster.MinionClusterSecGroupIDList {
+		secgroupMapping[secgroupUUID] = true
+	}
+
+	for _, secgroupUUID := range validSecgroupUUIDs {
+		if _, ok := secgroupMapping[secgroupUUID]; !ok {
+			klog.Errorf("secgroup %s is not existed in cluster %s after update secgroup", secgroupUUID, pClusterID)
+			return fmt.Errorf("secgroup %s is not existed in cluster %s after update secgroup", secgroupUUID, pClusterID)
+		}
+	}
+
+	for _, secgroupUUID := range deleteSecgroup {
+		err = lSecgroupV2.Delete(s.vServerSC, lSecgroupV2.NewDeleteOpts(s.getProjectID(), secgroupUUID))
+		if err != nil {
+			klog.Errorf("ensureDeleteLoadBalancer; failed to delete secgroup %s: %v", secgroupUUID, err)
+			return err
 		}
 	}
 
@@ -552,10 +622,10 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 	return nil
 }
 
-func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pService *corev1.Service) (*corev1.LoadBalancerStatus, bool, error) {
+func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) (*lCoreV1.LoadBalancerStatus, bool, error) {
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
-	userCluster, err := cluster.Get(s.vServerSC, cluster.NewGetOpts(s.getProjectID(), pClusterID))
-	if cluster.IsErrClusterNotFound(err) {
+	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
+	if lClusterV2.IsErrClusterNotFound(err) {
 		klog.Warningf("cluster %s not found, please check the secret resource in the Helm template", pClusterID)
 		return nil, false, err
 	}
@@ -571,14 +641,70 @@ func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pSe
 	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
 	for _, itemLb := range userLbs {
 		if s.findLoadBalancer(lbName, userLbs, userCluster) != nil {
-			status := &corev1.LoadBalancerStatus{}
-			status.Ingress = []corev1.LoadBalancerIngress{{IP: itemLb.Address}}
+			status := &lCoreV1.LoadBalancerStatus{}
+			status.Ingress = []lCoreV1.LoadBalancerIngress{{IP: itemLb.Address}}
 			return status, true, nil
 		}
 	}
 
 	klog.Infof("Load balancer %s is not existed", lbName)
 	return nil, false, nil
+}
+
+func (s *vLB) ensureSecgroup(pLb *lLbObjV2.LoadBalancer, pCluster *lClusterObjV2.Cluster, pService *lCoreV1.Service, pPort lCoreV1.ServicePort, pServiceConfig *serviceConfig) error {
+	subnet, err := lSubnetV2.Get(s.vServerSC, lSubnetV2.NewGetOpts(s.getProjectID(), pCluster.VpcID, pCluster.SubnetID))
+	if err != nil {
+		klog.Errorf("failed to get subnet %s: %v", pCluster.SubnetID, err)
+		return err
+	}
+
+	// Create a new secgroup for this cluster to allow traffic from the loadbalancer
+	secgroupName := lUtils.GenSecgroupName(pCluster.ID, pService, string(pPort.Protocol), int(pPort.Port))
+	secgroupDescription := lUtils.GenSecgroupDescription(pCluster.ID, pService, pLb.UUID)
+	newSecgroup, err := lSecgroupV2.Create(
+		s.vServerSC,
+		lSecgroupV2.NewCreateOpts(s.getProjectID(), &lSecgroupV2.CreateOpts{
+			Name:        secgroupName,
+			Description: secgroupDescription}))
+
+	if err != nil {
+		klog.Errorf("failed to create secgroup %s for cluster %s: %v", secgroupName, pCluster.ID, err)
+		return err
+	}
+
+	klog.Infof("Created secgroup %s for cluster %s successfully", secgroupName, pCluster.ID)
+
+	// Add the rule to allow traffic from the loadbalancer
+	_, err = lSecRuleV2.Create(s.vServerSC, lSecRuleV2.NewCreateOpts(s.getProjectID(), &lSecRuleV2.CreateOpts{
+		SecgroupUUID:   newSecgroup.UUID,
+		Direction:      lSecRuleV2.CreateOptsDirectionOptIngress,
+		EtherType:      lUtils.GetSecgroupRuleEthernetType(pServiceConfig.preferredIPFamily),
+		Protocol:       lUtils.GetSecgroupRuleProtocolOpt(pPort),
+		PortRangeMin:   int(pPort.Port),
+		PortRangeMax:   int(pPort.Port),
+		RemoteIPPrefix: subnet.CIRD}))
+
+	if err != nil {
+		klog.Errorf("failed to create secgroup rule for secgroup %s: %v", newSecgroup.UUID, err)
+		return err
+	}
+
+	// Attach the secgroup to entire minion node groups
+	_, err = lClusterV2.UpdateSecgroup(
+		s.vServerSC,
+		lClusterV2.NewUpdateSecgroupOpts(
+			s.getProjectID(),
+			&lClusterV2.UpdateSecgroupOpts{
+				ClusterID:   pCluster.ID,
+				Master:      false,
+				SecGroupIds: append(pCluster.MinionClusterSecGroupIDList, newSecgroup.UUID)}))
+
+	if err != nil {
+		klog.Errorf("failed to attach secgroup %s to cluster %s: %v", newSecgroup.UUID, pCluster.ID, err)
+		return err
+	}
+
+	return nil
 }
 
 func popListener(pExistingListeners []*lListenerObjV2.Listener, pNewListenerID string) []*lListenerObjV2.Listener {
