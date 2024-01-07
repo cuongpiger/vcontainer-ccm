@@ -7,6 +7,7 @@ import (
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/errors"
 	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
+	lClusterObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster/obj"
 	lListenerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
 	lListenerObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener/obj"
 	lLoadBalancerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
@@ -119,7 +120,7 @@ func (s *vLB) ensureLoadBalancer(
 		klog.Infof("there is no load balancer for cluster %s in the subnet %s, creating new one", pClusterID, userCluster.SubnetID)
 		createdNewLB = true
 		isOwner = true
-	} else if userLb = s.findLoadBalancer(lbName, userLbs); userLb == nil {
+	} else if userLb = s.findLoadBalancer(lbName, userLbs, userCluster); userLb == nil {
 		createdNewLB = true
 		isOwner = true
 	} else if userLb != nil {
@@ -496,9 +497,9 @@ func (s *vLB) getProjectID() string {
 	return s.extraInfo.ProjectID
 }
 
-func (s *vLB) findLoadBalancer(pLbName string, pLbs []*lLbObjV2.LoadBalancer) *lLbObjV2.LoadBalancer {
+func (s *vLB) findLoadBalancer(pLbName string, pLbs []*lLbObjV2.LoadBalancer, pCluster *lClusterObjV2.Cluster) *lLbObjV2.LoadBalancer {
 	for _, lb := range pLbs {
-		if lb.Name == pLbName {
+		if lb.SubnetID == pCluster.SubnetID && lb.Name == pLbName {
 			return lb
 		}
 	}
@@ -524,7 +525,7 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 	// Get the loadbalancer by subnetID and loadbalancer name
 	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
 	for _, itemLb := range userLbs {
-		if itemLb.Name == lbName {
+		if s.findLoadBalancer(lbName, userLbs, userCluster) != nil {
 			err := lLoadBalancerV2.Delete(s.vLBSC, lLoadBalancerV2.NewDeleteOpts(s.getProjectID(), itemLb.UUID))
 			if err != nil {
 				klog.Errorf("failed to delete load balancer %s: %v", itemLb.UUID, err)
@@ -535,6 +536,7 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 		}
 	}
 
+	// The loadbalancer has been deleted completely
 	return nil
 }
 
@@ -556,7 +558,7 @@ func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pSe
 	// Get the loadbalancer by subnetID and loadbalancer name
 	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
 	for _, itemLb := range userLbs {
-		if itemLb.Name == lbName {
+		if s.findLoadBalancer(lbName, userLbs, userCluster) != nil {
 			status := &corev1.LoadBalancerStatus{}
 			status.Ingress = []corev1.LoadBalancerIngress{{IP: itemLb.Address}}
 			return status, true, nil
