@@ -387,7 +387,7 @@ func (s *vLB) ensurePool(
 
 	newPool, err := pool.Create(s.vLBSC, pool.NewCreateOpts(s.extraInfo.ProjectID, pLbID, &pool.CreateOpts{
 		Algorithm:    pool.CreateOptsAlgorithmOptRoundRobin,
-		PoolName:     pService.Name,
+		PoolName:     poolName,
 		PoolProtocol: utils.GetVLBProtocolOpt(pPort),
 		Members:      poolMembers,
 		HealthMonitor: pool.HealthMonitor{
@@ -481,7 +481,7 @@ func (s *vLB) ensureListener(pLbID, pPoolID, pLbName string, pPort corev1.Servic
 		&lListenerV2.CreateOpts{
 			AllowedCidrs:         listenerDefaultCIDR,
 			DefaultPoolId:        pPoolID,
-			ListenerName:         pLbName,
+			ListenerName:         utils.GenListenerName(pLbID, nil, string(pPort.Protocol), int(pPort.Port)),
 			ListenerProtocol:     utils.GetListenerProtocolOpt(pPort),
 			ListenerProtocolPort: int(pPort.Port),
 			TimeoutClient:        listenerTimeoutClient,
