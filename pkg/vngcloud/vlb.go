@@ -147,6 +147,8 @@ func (s *vLB) ensureLoadBalancer(
 				"failed to create load balancer %s for service %s/%s: %v", lbName, pService.Namespace, pService.Name, err)
 			return nil, err
 		}
+
+		klog.Infof("Load-balancer [%s] is ACTIVE with UUID [%s]", userLb.Name, userLb.UUID)
 	}
 
 	lbListeners, err := lListenerV2.GetBasedLoadBalancer(
@@ -155,6 +157,7 @@ func (s *vLB) ensureLoadBalancer(
 		klog.Errorf("failed to get listeners for load balancer %s: %v", userLb.UUID, err)
 		return nil, err
 	}
+	klog.Infof("Load-balancer [%s] has [%d] listeners", userLb.Name, len(lbListeners))
 
 	curListenerMapping := make(map[listenerKey]*lListenerObjV2.Listener)
 	for i, itemListener := range lbListeners {
@@ -163,6 +166,7 @@ func (s *vLB) ensureLoadBalancer(
 	}
 
 	for _, itemPort := range pService.Spec.Ports {
+		klog.V(5).Infof("Processing pool using port %d", itemPort.Port)
 		newPool, err := s.ensurePool(userLb.UUID, pService, itemPort, pNodes, svcConf, createdNewLB)
 		if err != nil {
 			return nil, err
@@ -175,6 +179,8 @@ func (s *vLB) ensureLoadBalancer(
 				return nil, err
 			}
 		}
+
+		klog.V(5).Infof("Processing listener using port %d", itemPort.Port)
 		newListener, err := s.ensureListener(userLb.UUID, newPool.UUID, lbName, itemPort)
 		if err != nil {
 			klog.Errorf("failed to create listener for load balancer %s: %v", userLb.UUID, err)
@@ -183,6 +189,7 @@ func (s *vLB) ensureLoadBalancer(
 
 		popListener(lbListeners, newListener.ID)
 	}
+	klog.V(5).Infof("Processing listeners and pools completely, next to delete the unused listeners and pools")
 
 	for _, itemListener := range lbListeners {
 		err = lListenerV2.Delete(s.vLBSC, lListenerV2.NewDeleteOpts(s.getProjectID(), userLb.UUID, itemListener.ID))
@@ -196,12 +203,6 @@ func (s *vLB) ensureLoadBalancer(
 			klog.Errorf("failed to wait load balancer %s for service %s: %v", userLb.UUID, pService.Name, err)
 			return nil, err
 		}
-	}
-
-	userLb, err = lLoadBalancerV2.Get(s.vLBSC, lLoadBalancerV2.NewGetOpts(s.getProjectID(), userLb.UUID))
-	if err != nil {
-		klog.Errorf("failed to get load balancer %s: %v", userLb.UUID, err)
-		return nil, err
 	}
 
 	lbStatus := s.createLoadBalancerStatus(userLb.Address)
@@ -288,12 +289,13 @@ func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *corev1.
 		return nil, err
 	}
 
+	klog.Infof("Created load balancer %s for service %s successfully", newLb.UUID, pService.Name)
 	return newLb, nil
 }
 
 func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error) {
 	klog.Infof("Waiting for load balancer %s to be ready", pLbID)
-	var lb *lLbObjV2.LoadBalancer
+	var resultLb *lLbObjV2.LoadBalancer
 
 	err := wait.ExponentialBackoff(wait.Backoff{
 		Duration: waitLoadbalancerInitDelay,
@@ -301,7 +303,7 @@ func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error
 		Steps:    waitLoadbalancerActiveSteps,
 	}, func() (done bool, err error) {
 		mc := metrics.NewMetricContext("loadbalancer", "get")
-		lb, err := lLoadBalancerV2.Get(s.vLBSC, lLoadBalancerV2.NewGetOpts(s.extraInfo.ProjectID, pLbID))
+		lb, err := lLoadBalancerV2.Get(s.vLBSC, lLoadBalancerV2.NewGetOpts(s.getProjectID(), pLbID))
 		if mc.ObserveReconcile(err) != nil {
 			klog.Errorf("failed to get load balancer %s: %v", pLbID, err)
 			return false, err
@@ -309,6 +311,7 @@ func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error
 
 		if strings.ToUpper(lb.Status) == ACTIVE_LOADBALANCER_STATUS {
 			klog.Infof("Load balancer %s is ready", pLbID)
+			resultLb = lb
 			return true, nil
 		}
 
@@ -317,10 +320,10 @@ func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error
 	})
 
 	if wait.Interrupted(err) {
-		err = fmt.Errorf("timeout waiting for the loadbalancer %s with lb status %s", pLbID, lb.Status)
+		err = fmt.Errorf("timeout waiting for the loadbalancer %s with lb status %s", pLbID, resultLb.Status)
 	}
 
-	return lb, err
+	return resultLb, err
 }
 
 // checkListenerPorts checks if there is conflict for ports.
