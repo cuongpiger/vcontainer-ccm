@@ -565,7 +565,8 @@ func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pSe
 		}
 	}
 
-	return nil, false, fmt.Errorf("the loadbalancer %s is not existed", lbName)
+	klog.Infof("Load balancer %s is not existed", lbName)
+	return nil, false, nil
 }
 
 func popListener(pExistingListeners []*lListenerObjV2.Listener, pNewListenerID string) []*lListenerObjV2.Listener {
