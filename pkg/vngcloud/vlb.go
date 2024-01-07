@@ -6,14 +6,13 @@ import (
 	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
 	lUtils "github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/errors"
+	lObjects "github.com/vngcloud/vcontainer-sdk/vcontainer/objects"
 	lClusterV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
 	lClusterObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster/obj"
 	lListenerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
-	lListenerObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener/obj"
 	lLoadBalancerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
 	lLbObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer/obj"
-	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
-	obj3 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool/obj"
+	lPoolV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
 	lSecRuleV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/extensions/secgroup_rule"
 	lSecgroupV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/secgroup"
 	lSubnetV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/subnet"
@@ -136,7 +135,7 @@ func (s *vLB) ensureLoadBalancer(
 		isOwner:   isOwner,
 	}
 
-	if err = s.checkService(pService, pNodes, svcConf); err != nil {
+	if err = s.checkService(pService, pNodes, svcConf, userLb); err != nil {
 		return nil, err
 	}
 
@@ -162,29 +161,30 @@ func (s *vLB) ensureLoadBalancer(
 	}
 	klog.Infof("Load-balancer [%s] has [%d] listeners", userLb.Name, len(lbListeners))
 
-	curListenerMapping := make(map[listenerKey]*lListenerObjV2.Listener)
+	curListenerMapping := make(map[listenerKey]*lObjects.Listener)
 	for i, itemListener := range lbListeners {
 		key := listenerKey{Protocol: itemListener.Protocol, Port: itemListener.ProtocolPort}
 		curListenerMapping[key] = lbListeners[i]
 	}
 
+	// This loadbalancer is existed, check the listener and pool, if existed, delete them
+	if !createdNewLB {
+		err = s.checkListenerPorts(pService, curListenerMapping, userLb.UUID)
+		if err != nil {
+			klog.Errorf("the port and protocol is conflict: %v", err)
+			return nil, err
+		}
+	}
+
 	for _, itemPort := range pService.Spec.Ports {
 		klog.V(5).Infof("Processing pool using port %d", itemPort.Port)
-		newPool, err := s.ensurePool(userLb.UUID, pService, itemPort, pNodes, svcConf, createdNewLB)
+		newPool, err := s.ensurePool(userCluster, userLb, pService, itemPort, pNodes, svcConf, createdNewLB)
 		if err != nil {
 			return nil, err
 		}
 
-		if !createdNewLB {
-			err = s.checkListenerPorts(pService, curListenerMapping, lbName)
-			if err != nil {
-				klog.Errorf("the port and protocol is conflict: %v", err)
-				return nil, err
-			}
-		}
-
 		klog.V(5).Infof("Processing listener using port %d", itemPort.Port)
-		newListener, err := s.ensureListener(userLb.UUID, newPool.UUID, lbName, itemPort)
+		newListener, err := s.ensureListener(userCluster, userLb.UUID, newPool.UUID, lbName, itemPort, pService)
 		if err != nil {
 			klog.Errorf("failed to create listener for load balancer %s: %v", userLb.UUID, err)
 			return nil, err
@@ -222,7 +222,7 @@ func (s *vLB) ensureLoadBalancer(
 	return lbStatus, nil
 }
 
-func (s *vLB) checkService(pService *lCoreV1.Service, pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig) error {
+func (s *vLB) checkService(pService *lCoreV1.Service, pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig, pLb *lLbObjV2.LoadBalancer) error {
 	serviceName := fmt.Sprintf("%s/%s", pService.Namespace, pService.Name)
 
 	if len(pNodes) <= 0 {
@@ -336,17 +336,31 @@ func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error
 }
 
 // checkListenerPorts checks if there is conflict for ports.
-func (s *vLB) checkListenerPorts(service *lCoreV1.Service, curListenerMapping map[listenerKey]*lListenerObjV2.Listener, pClusterID string) error {
+func (s *vLB) checkListenerPorts(service *lCoreV1.Service, curListenerMapping map[listenerKey]*lObjects.Listener, pLbID string) error {
 	for _, svcPort := range service.Spec.Ports {
 		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
 
 		if lbListener, isPresent := curListenerMapping[key]; isPresent {
-			// The listener is used by this Service if LB name is in the tags, or
-			// the listener was created by this Service.
-			if lbListener.Name == lUtils.GenListenerName(pClusterID, service, string(svcPort.Protocol), int(svcPort.Port)) {
-				continue
-			} else {
-				return fmt.Errorf("the listener port %d already exists, can not use", svcPort.Port)
+			// Delete this listener and its pools
+			defaultPoolID := lbListener.DefaultPoolUUID
+			if err := lListenerV2.Delete(s.vLBSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLbID, lbListener.ID)); err != nil {
+				klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLbID, err)
+				return err
+			}
+
+			if _, err := s.waitLoadBalancerReady(pLbID); err != nil {
+				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, service.Name, err)
+				return err
+			}
+
+			if err := lPoolV2.Delete(s.vLBSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLbID, defaultPoolID)); err != nil {
+				klog.Errorf("failed to delete pool %s for load balancer %s: %v", defaultPoolID, pLbID, err)
+				return err
+			}
+
+			if _, err := s.waitLoadBalancerReady(pLbID); err != nil {
+				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, service.Name, err)
+				return err
 			}
 		}
 	}
@@ -355,23 +369,26 @@ func (s *vLB) checkListenerPorts(service *lCoreV1.Service, curListenerMapping ma
 }
 
 func (s *vLB) ensurePool(
-	pLbID string, pService *lCoreV1.Service, pPort lCoreV1.ServicePort, pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig, createdNewLb bool) (*obj3.Pool, error) {
+	pCluster *lClusterObjV2.Cluster, pLb *lLbObjV2.LoadBalancer, pService *lCoreV1.Service, pPort lCoreV1.ServicePort,
+	pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig, createdNewLb bool) (*lObjects.Pool, error) {
 
 	// Get the pool name
-	poolName := lUtils.GenPoolName(pLbID, pService, string(pPort.Protocol))
+	poolName := lUtils.GenPoolName(pCluster.ID, pService, string(pPort.Protocol))
 
 	// Check if the pool is existed
 	if !createdNewLb {
 		// Get all pools of this load-balancer depends on the load-balancer UUID
-		pools, err := pool.ListPoolsBasedLoadBalancer(s.vLBSC, pool.NewListPoolsBasedLoadBalancerOpts(s.extraInfo.ProjectID, pLbID))
+		pools, err := lPoolV2.ListPoolsBasedLoadBalancer(
+			s.vLBSC,
+			lPoolV2.NewListPoolsBasedLoadBalancerOpts(s.extraInfo.ProjectID, pLb.UUID))
 		if err != nil {
-			klog.Errorf("failed to list pools for load balancer %s: %v", pLbID, err)
+			klog.Errorf("failed to list pools for load balancer %s: %v", pLb.UUID, err)
 			return nil, err
 		}
 
 		for _, itemPool := range pools {
 			if itemPool.Name == poolName {
-				err = pool.Delete(s.vLBSC, pool.NewDeleteOpts(s.extraInfo.ProjectID, pLbID, itemPool.UUID))
+				err = lPoolV2.Delete(s.vLBSC, lPoolV2.NewDeleteOpts(s.extraInfo.ProjectID, pLb.UUID, itemPool.UUID))
 				if err != nil {
 					klog.Errorf("failed to delete pool %s for service %s: %v", itemPool.Name, pService.Name, err)
 					return nil, err
@@ -381,9 +398,9 @@ func (s *vLB) ensurePool(
 			}
 		}
 
-		_, err = s.waitLoadBalancerReady(pLbID)
+		_, err = s.waitLoadBalancerReady(pLb.UUID)
 		if err != nil {
-			klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, pService.Name, err)
+			klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
 			return nil, err
 		}
 	}
@@ -394,12 +411,12 @@ func (s *vLB) ensurePool(
 		return nil, err
 	}
 
-	newPool, err := pool.Create(s.vLBSC, pool.NewCreateOpts(s.extraInfo.ProjectID, pLbID, &pool.CreateOpts{
-		Algorithm:    pool.CreateOptsAlgorithmOptRoundRobin,
+	newPool, err := lPoolV2.Create(s.vLBSC, lPoolV2.NewCreateOpts(s.extraInfo.ProjectID, pLb.UUID, &lPoolV2.CreateOpts{
+		Algorithm:    lPoolV2.CreateOptsAlgorithmOptRoundRobin,
 		PoolName:     poolName,
 		PoolProtocol: lUtils.GetVLBProtocolOpt(pPort),
 		Members:      poolMembers,
-		HealthMonitor: pool.HealthMonitor{
+		HealthMonitor: lPoolV2.HealthMonitor{
 			HealthCheckProtocol: string(lUtils.GetVLBProtocolOpt(pPort)),
 			HealthyThreshold:    healthMonitorHealthyThreshold,
 			UnhealthyThreshold:  healthMonitorUnhealthyThreshold,
@@ -414,19 +431,34 @@ func (s *vLB) ensurePool(
 	}
 
 	klog.Infof("Created pool %s for service %s, waiting the loadbalancer update completely", pService.Name, pService.Name)
-	_, err = s.waitLoadBalancerReady(pLbID)
+	_, err = s.waitLoadBalancerReady(pLb.UUID)
 	if err != nil {
-		klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, pService.Name, err)
+		klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
 		return nil, err
 	}
 
 	return newPool, nil
 }
 
-func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pServiceConfig *serviceConfig) ([]pool.Member, error) {
-	var poolMembers []pool.Member
+func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pServiceConfig *serviceConfig) ([]lPoolV2.Member, error) {
+	var poolMembers []lPoolV2.Member
 
 	for _, itemNode := range pNodes {
+		// Ignore master node
+		if _, ok := itemNode.GetObjectMeta().GetLabels()["node-role.kubernetes.io/master"]; ok {
+			continue
+		}
+
+		_, err := getNodeAddressForLB(itemNode)
+		if err != nil {
+			if errors.IsErrNodeAddressNotFound(err) {
+				klog.Warningf("failed to get address for node %s: %v", itemNode.Name, err)
+				continue
+			} else {
+				return nil, fmt.Errorf("failed to get address for node %s: %v", itemNode.Name, err)
+			}
+		}
+
 		nodeAddress, err := nodeAddressForLB(itemNode, pServiceConfig.preferredIPFamily)
 		if err != nil {
 			if errors.IsErrNodeAddressNotFound(err) {
@@ -439,7 +471,7 @@ func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pSer
 
 		// It's 0 when AllocateLoadBalancerNodePorts=False
 		if pPort.NodePort != 0 {
-			poolMembers = append(poolMembers, pool.Member{
+			poolMembers = append(poolMembers, lPoolV2.Member{
 				Backup:      true,
 				IpAddress:   nodeAddress,
 				Port:        int(pPort.NodePort),
@@ -482,7 +514,8 @@ func nodeAddressForLB(node *lCoreV1.Node, preferredIPFamily lCoreV1.IPFamily) (s
 	return "", errors.NewErrNodeAddressNotFound(node.Name, "")
 }
 
-func (s *vLB) ensureListener(pLbID, pPoolID, pLbName string, pPort lCoreV1.ServicePort) (*lListenerObjV2.Listener, error) {
+func (s *vLB) ensureListener(pCluster *lClusterObjV2.Cluster, pLbID, pPoolID, pLbName string, pPort lCoreV1.ServicePort, pService *lCoreV1.Service) (*lObjects.Listener, error) {
+
 	mc := metrics.NewMetricContext("listener", "create")
 	newListener, err := lListenerV2.Create(s.vLBSC, lListenerV2.NewCreateOpts(
 		s.extraInfo.ProjectID,
@@ -490,7 +523,7 @@ func (s *vLB) ensureListener(pLbID, pPoolID, pLbName string, pPort lCoreV1.Servi
 		&lListenerV2.CreateOpts{
 			AllowedCidrs:         listenerDefaultCIDR,
 			DefaultPoolId:        pPoolID,
-			ListenerName:         lUtils.GenListenerName(pLbID, nil, string(pPort.Protocol), int(pPort.Port)),
+			ListenerName:         lUtils.GenListenerName(pCluster.ID, pService, string(pPort.Protocol), int(pPort.Port)),
 			ListenerProtocol:     lUtils.GetListenerProtocolOpt(pPort),
 			ListenerProtocolPort: int(pPort.Port),
 			TimeoutClient:        listenerTimeoutClient,
@@ -668,21 +701,45 @@ func (s *vLB) ensureSecgroup(pLb *lLbObjV2.LoadBalancer, pCluster *lClusterObjV2
 			Description: secgroupDescription}))
 
 	if err != nil {
+		if lSecgroupV2.IsErrNameDuplicate(err) {
+			secgroups, err := lSecgroupV2.List(s.vServerSC, lSecgroupV2.NewListOpts(s.getProjectID(), secgroupName))
+			if err != nil {
+				klog.Errorf("failed to list secgroup by secgroup name [%s]", secgroupName)
+				return err
+			}
+
+			if len(secgroups) > 0 {
+				for _, secgroup := range secgroups {
+					if secgroup.Description == secgroupDescription {
+						err = lSecgroupV2.Delete(s.vServerSC, lSecgroupV2.NewDeleteOpts(s.getProjectID(), secgroup.UUID))
+						if err != nil {
+							klog.Errorf("failed to delete secgroup %s: %v", secgroup.UUID, err)
+							return err
+						} else {
+							return s.ensureSecgroup(pLb, pCluster, pService, pPort, pServiceConfig)
+						}
+					}
+				}
+			}
+		}
 		klog.Errorf("failed to create secgroup %s for cluster %s: %v", secgroupName, pCluster.ID, err)
 		return err
 	}
 
 	klog.Infof("Created secgroup %s for cluster %s successfully", secgroupName, pCluster.ID)
 
-	// Add the rule to allow traffic from the loadbalancer
-	_, err = lSecRuleV2.Create(s.vServerSC, lSecRuleV2.NewCreateOpts(s.getProjectID(), &lSecRuleV2.CreateOpts{
+	opts := &lSecRuleV2.CreateOpts{
 		SecgroupUUID:   newSecgroup.UUID,
 		Direction:      lSecRuleV2.CreateOptsDirectionOptIngress,
 		EtherType:      lUtils.GetSecgroupRuleEthernetType(pServiceConfig.preferredIPFamily),
 		Protocol:       lUtils.GetSecgroupRuleProtocolOpt(pPort),
 		PortRangeMin:   int(pPort.Port),
 		PortRangeMax:   int(pPort.Port),
-		RemoteIPPrefix: subnet.CIRD}))
+		RemoteIPPrefix: subnet.CIRD}
+
+	klog.Infof("Adding rule to secgroup %s to allow traffic from loadbalancer %s: %+v", newSecgroup.UUID, pLb.UUID, opts)
+	// Add the rule to allow traffic from the loadbalancer
+	_, err = lSecRuleV2.Create(s.vServerSC, lSecRuleV2.NewCreateOpts(s.getProjectID(), opts))
 
 	if err != nil {
 		klog.Errorf("failed to create secgroup rule for secgroup %s: %v", newSecgroup.UUID, err)
@@ -707,8 +764,23 @@ func (s *vLB) ensureSecgroup(pLb *lLbObjV2.LoadBalancer, pCluster *lClusterObjV2
 	return nil
 }
 
-func popListener(pExistingListeners []*lListenerObjV2.Listener, pNewListenerID string) []*lListenerObjV2.Listener {
-	var newListeners []*lListenerObjV2.Listener
+func getNodeAddressForLB(node *lCoreV1.Node) (string, error) {
+	addrs := node.Status.Addresses
+	if len(addrs) == 0 {
+		return "", errors.NewErrNodeAddressNotFound(node.Name, "")
+	}
+
+	for _, addr := range addrs {
+		if addr.Type == lCoreV1.NodeInternalIP {
+			return addr.Address, nil
+		}
+	}
+
+	return addrs[0].Address, nil
+}
+
+func popListener(pExistingListeners []*lObjects.Listener, pNewListenerID string) []*lObjects.Listener {
+	var newListeners []*lObjects.Listener
 
 	for _, existingListener := range pExistingListeners {
 		if existingListener.ID != pNewListenerID {
