@@ -76,7 +76,7 @@ func GetListenerProtocolOpt(pPort lCoreV1.ServicePort) listener.CreateOptsListen
 }
 
 func GenPoolName(pClusterID string, pService *lCoreV1.Service, pProtocol string) string {
-	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME):]
+	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
 	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - 1
 	if delta >= len(pProtocol) {
 		return fmt.Sprintf("%s-%s", lbName, pProtocol)
@@ -87,7 +87,7 @@ func GenPoolName(pClusterID string, pService *lCoreV1.Service, pProtocol string)
 }
 
 func GenListenerName(pClusterID string, pService *lCoreV1.Service, pProtocol string, pPort int) string {
-	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME):]
+	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
 	port := fmt.Sprintf("%d", pPort)
 	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - len(port) - 2
 	if delta >= len(pProtocol) {

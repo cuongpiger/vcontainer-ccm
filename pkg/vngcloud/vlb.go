@@ -198,8 +198,17 @@ func (s *vLB) ensureLoadBalancer(
 		}
 	}
 
+	userLb, err = lLoadBalancerV2.Get(s.vLBSC, lLoadBalancerV2.NewGetOpts(s.getProjectID(), userLb.UUID))
+	if err != nil {
+		klog.Errorf("failed to get load balancer %s: %v", userLb.UUID, err)
+		return nil, err
+	}
+
 	lbStatus := s.createLoadBalancerStatus(userLb.Address)
 
+	klog.Infof(
+		"Load balancer %s for service %s/%s is ready to use for Kubernetes controller",
+		lbName, pService.Namespace, pService.Name)
 	return lbStatus, nil
 }
 
