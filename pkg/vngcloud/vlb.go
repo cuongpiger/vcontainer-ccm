@@ -3,9 +3,11 @@ package vngcloud
 import (
 	"context"
 	"fmt"
+	"github.com/cuongpiger/vcontainer-ccm/pkg/consts"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
 	lUtils "github.com/cuongpiger/vcontainer-ccm/pkg/utils"
 	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/errors"
+	"github.com/vngcloud/vcontainer-sdk/client"
 	lObjects "github.com/vngcloud/vcontainer-sdk/vcontainer/objects"
 	lClusterV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
 	lClusterObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster/obj"
@@ -13,9 +15,7 @@ import (
 	lLoadBalancerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
 	lLbObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer/obj"
 	lPoolV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
-	lSecRuleV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/extensions/secgroup_rule"
 	lSecgroupV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/secgroup"
-	lSubnetV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/subnet"
 	lCoreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -23,8 +23,6 @@ import (
 	"k8s.io/klog/v2"
 	netutils "k8s.io/utils/net"
 	"strings"
-
-	"github.com/vngcloud/vcontainer-sdk/client"
 )
 
 const (
@@ -169,7 +167,7 @@ func (s *vLB) ensureLoadBalancer(
 
 	// This loadbalancer is existed, check the listener and pool, if existed, delete them
 	if !createdNewLB {
-		err = s.checkListenerPorts(pService, curListenerMapping, userLb.UUID)
+		err = s.checkListenerPorts(pService, curListenerMapping, userLb.UUID, userCluster)
 		if err != nil {
 			klog.Errorf("the port and protocol is conflict: %v", err)
 			return nil, err
@@ -190,12 +188,6 @@ func (s *vLB) ensureLoadBalancer(
 			return nil, err
 		}
 
-		// Update the security group
-		if err = s.ensureSecgroup(userLb, userCluster, pService, itemPort, svcConf); err != nil {
-			klog.Errorf("failed to update security group for load balancer %s: %v", userLb.UUID, err)
-			return nil, err
-		}
-
 		popListener(lbListeners, newListener.ID)
 	}
 	klog.V(5).Infof("Processing listeners and pools completely, next to delete the unused listeners and pools")
@@ -210,6 +202,14 @@ func (s *vLB) ensureLoadBalancer(
 		_, err = s.waitLoadBalancerReady(userLb.UUID)
 		if err != nil {
 			klog.Errorf("failed to wait load balancer %s for service %s: %v", userLb.UUID, pService.Name, err)
+			return nil, err
+		}
+	}
+
+	if getBoolFromServiceAnnotation(pService, ServiceAnnotationEnableSecgroupDefault, true) {
+		// Update the security group
+		if err = s.ensureSecgroup(userCluster); err != nil {
+			klog.Errorf("failed to update security group for load balancer %s: %v", userLb.UUID, err)
 			return nil, err
 		}
 	}
@@ -239,17 +239,13 @@ func (s *vLB) checkService(pService *lCoreV1.Service, pNodes []*lCoreV1.Node, pS
 		pServiceConfig.preferredIPFamily = pService.Spec.IPFamilies[0]
 	}
 
-	// If the service is
+	// If the service is IPv6 family, the load-balancer must be internal
 	if pServiceConfig.preferredIPFamily == lCoreV1.IPv6Protocol {
 		pServiceConfig.internal = true
-	} else {
-		pServiceConfig.internal = getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false)
 	}
 
+	pServiceConfig.internal = getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false)
 	pServiceConfig.subnetID = pServiceConfig.getClusterSubnetID()
-	if !getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false) {
-		pServiceConfig.internal = true
-	}
 
 	switch lbType := getStringFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerType, "layer-4"); lbType {
 	case "layer-7":
@@ -336,32 +332,40 @@ func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error
 }
 
 // checkListenerPorts checks if there is conflict for ports.
-func (s *vLB) checkListenerPorts(service *lCoreV1.Service, curListenerMapping map[listenerKey]*lObjects.Listener, pLbID string) error {
+func (s *vLB) checkListenerPorts(service *lCoreV1.Service, curListenerMapping map[listenerKey]*lObjects.Listener, pLbID string, pCluster *lClusterObjV2.Cluster) error {
 	for _, svcPort := range service.Spec.Ports {
 		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
+		listenerName := lUtils.GenListenerName(pCluster.ID, service, string(svcPort.Protocol), int(svcPort.Port))
 
 		if lbListener, isPresent := curListenerMapping[key]; isPresent {
-			// Delete this listener and its pools
-			defaultPoolID := lbListener.DefaultPoolUUID
-			if err := lListenerV2.Delete(s.vLBSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLbID, lbListener.ID)); err != nil {
-				klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLbID, err)
-				return err
+			if lbListener.Name != listenerName {
+				klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
+				return errors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
 			}
 
-			if _, err := s.waitLoadBalancerReady(pLbID); err != nil {
-				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, service.Name, err)
-				return err
-			}
-
-			if err := lPoolV2.Delete(s.vLBSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLbID, defaultPoolID)); err != nil {
-				klog.Errorf("failed to delete pool %s for load balancer %s: %v", defaultPoolID, pLbID, err)
-				return err
-			}
-
-			if _, err := s.waitLoadBalancerReady(pLbID); err != nil {
-				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, service.Name, err)
-				return err
-			}
+			klog.Infof("the port %d and protocol %s is already existed", svcPort.Port, svcPort.Protocol)
+			continue
+			//// Delete this listener and its pools
+			//defaultPoolID := lbListener.DefaultPoolUUID
+			//if err := lListenerV2.Delete(s.vLBSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLbID, lbListener.ID)); err != nil {
+			//	klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLbID, err)
+			//	return err
+			//}
+			//
+			//if _, err := s.waitLoadBalancerReady(pLbID); err != nil {
+			//	klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, service.Name, err)
+			//	return err
+			//}
+			//
+			//if err := lPoolV2.Delete(s.vLBSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLbID, defaultPoolID)); err != nil {
+			//	klog.Errorf("failed to delete pool %s for load balancer %s: %v", defaultPoolID, pLbID, err)
+			//	return err
+			//}
+			//
+			//if _, err := s.waitLoadBalancerReady(pLbID); err != nil {
+			//	klog.Errorf("failed to wait load balancer %s for service %s: %v", pLbID, service.Name, err)
+			//	return err
+			//}
 		}
 	}
 
@@ -578,76 +582,16 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 
 	// Get the loadbalancer by subnetID and loadbalancer name
 	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
-	lbUUID := ""
 	for _, itemLb := range userLbs {
 		if foundLb := s.findLoadBalancer(lbName, userLbs, userCluster); foundLb != nil {
+			// Delete this loadbalancer
 			err := lLoadBalancerV2.Delete(s.vLBSC, lLoadBalancerV2.NewDeleteOpts(s.getProjectID(), itemLb.UUID))
 			if err != nil {
 				klog.Errorf("failed to delete load balancer %s: %v", itemLb.UUID, err)
 				return err
 			}
 
-			lbUUID = itemLb.UUID
 			break
-		}
-	}
-
-	var deleteSecgroup []string
-	var validSecgroupUUIDs []string
-	if len(lbUUID) > 0 {
-		for _, secgroupUUID := range userCluster.MinionClusterSecGroupIDList {
-			secgroup, err := lSecgroupV2.Get(s.vServerSC, lSecgroupV2.NewGetOpts(s.getProjectID(), secgroupUUID))
-			if err != nil {
-				klog.Warningf("failed to get secgroup %s: %v", secgroupUUID, err)
-				continue
-			}
-
-			if strings.Contains(secgroup.Description, lbUUID) {
-				deleteSecgroup = append(deleteSecgroup, secgroupUUID)
-			} else {
-				validSecgroupUUIDs = append(validSecgroupUUIDs, secgroupUUID)
-			}
-		}
-	}
-
-	if len(deleteSecgroup) > 0 {
-		_, err := lClusterV2.UpdateSecgroup(
-			s.vServerSC,
-			lClusterV2.NewUpdateSecgroupOpts(
-				s.getProjectID(),
-				&lClusterV2.UpdateSecgroupOpts{
-					ClusterID:   pClusterID,
-					Master:      false,
-					SecGroupIds: validSecgroupUUIDs}))
-
-		if err != nil {
-			klog.Errorf("failed to update secgroup from cluster %s: %v", pClusterID, err)
-			return err
-		}
-	}
-
-	userCluster, err = lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
-	if err != nil {
-		klog.Errorf("failed to get cluster %s to recheck after update secgroup: %v", pClusterID, err)
-	}
-
-	secgroupMapping := make(map[string]bool)
-	for _, secgroupUUID := range userCluster.MinionClusterSecGroupIDList {
-		secgroupMapping[secgroupUUID] = true
-	}
-
-	for _, secgroupUUID := range validSecgroupUUIDs {
-		if _, ok := secgroupMapping[secgroupUUID]; !ok {
-			klog.Errorf("secgroup %s is not existed in cluster %s after update secgroup", secgroupUUID, pClusterID)
-			return fmt.Errorf("secgroup %s is not existed in cluster %s after update secgroup", secgroupUUID, pClusterID)
-		}
-	}
-
-	for _, secgroupUUID := range deleteSecgroup {
-		err = lSecgroupV2.Delete(s.vServerSC, lSecgroupV2.NewDeleteOpts(s.getProjectID(), secgroupUUID))
-		if err != nil {
-			klog.Errorf("ensureDeleteLoadBalancer; failed to delete secgroup %s: %v", secgroupUUID, err)
-			return err
 		}
 	}
 
@@ -684,84 +628,65 @@ func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pSe
 	return nil, false, nil
 }
 
-func (s *vLB) ensureSecgroup(pLb *lLbObjV2.LoadBalancer, pCluster *lClusterObjV2.Cluster, pService *lCoreV1.Service, pPort lCoreV1.ServicePort, pServiceConfig *serviceConfig) error {
-	subnet, err := lSubnetV2.Get(s.vServerSC, lSubnetV2.NewGetOpts(s.getProjectID(), pCluster.VpcID, pCluster.SubnetID))
+func (s *vLB) ensureSecgroup(pCluster *lClusterObjV2.Cluster) error {
+	defaultSecgroup, err := s.findDefaultSecgroup()
 	if err != nil {
-		klog.Errorf("failed to get subnet %s: %v", pCluster.SubnetID, err)
+		klog.Errorf("failed to find default secgroup: %v", err)
 		return err
 	}
 
-	// Create a new secgroup for this cluster to allow traffic from the loadbalancer
-	secgroupName := lUtils.GenSecgroupName(pCluster.ID, pService, string(pPort.Protocol), int(pPort.Port))
-	secgroupDescription := lUtils.GenSecgroupDescription(pCluster.ID, pService, pLb.UUID)
-	newSecgroup, err := lSecgroupV2.Create(
-		s.vServerSC,
-		lSecgroupV2.NewCreateOpts(s.getProjectID(), &lSecgroupV2.CreateOpts{
-			Name:        secgroupName,
-			Description: secgroupDescription}))
-
-	if err != nil {
-		if lSecgroupV2.IsErrNameDuplicate(err) {
-			secgroups, err := lSecgroupV2.List(s.vServerSC, lSecgroupV2.NewListOpts(s.getProjectID(), secgroupName))
-			if err != nil {
-				klog.Errorf("failed to list secgroup by secgroup name [%s]", secgroupName)
-				return err
-			}
-
-			if len(secgroups) > 0 {
-				for _, secgroup := range secgroups {
-					if secgroup.Description == secgroupDescription {
-						err = lSecgroupV2.Delete(s.vServerSC, lSecgroupV2.NewDeleteOpts(s.getProjectID(), secgroup.UUID))
-						if err != nil {
-							klog.Errorf("failed to delete secgroup %s: %v", secgroup.UUID, err)
-							return err
-						} else {
-							return s.ensureSecgroup(pLb, pCluster, pService, pPort, pServiceConfig)
-						}
-					}
-				}
-			}
+	alreadyAttach := false
+	for _, secgroup := range pCluster.MinionClusterSecGroupIDList {
+		if secgroup == defaultSecgroup.UUID {
+			alreadyAttach = true
+			break
 		}
-		klog.Errorf("failed to create secgroup %s for cluster %s: %v", secgroupName, pCluster.ID, err)
-		return err
 	}
 
-	klog.Infof("Created secgroup %s for cluster %s successfully", secgroupName, pCluster.ID)
+	if !alreadyAttach {
+		lstSecgroupID := append(pCluster.MinionClusterSecGroupIDList, defaultSecgroup.UUID)
+		klog.Infof("Attaching default secgroup %v to cluster %s", lstSecgroupID, pCluster.ID)
+		// Attach the secgroup to entire minion node groups
+		_, err = lClusterV2.UpdateSecgroup(
+			s.vServerSC,
+			lClusterV2.NewUpdateSecgroupOpts(
+				s.getProjectID(),
+				&lClusterV2.UpdateSecgroupOpts{
+					ClusterID:   pCluster.ID,
+					Master:      false,
+					SecGroupIds: lstSecgroupID}))
 
-	opts := &lSecRuleV2.CreateOpts{
-		SecgroupUUID:   newSecgroup.UUID,
-		Direction:      lSecRuleV2.CreateOptsDirectionOptIngress,
-		EtherType:      lUtils.GetSecgroupRuleEthernetType(pServiceConfig.preferredIPFamily),
-		Protocol:       lUtils.GetSecgroupRuleProtocolOpt(pPort),
-		PortRangeMin:   int(pPort.Port),
-		PortRangeMax:   int(pPort.Port),
-		RemoteIPPrefix: subnet.CIRD}
-
-	klog.Infof("Adding rule to secgroup %s to allow traffic from loadbalancer %s: %+v", newSecgroup.UUID, pLb.UUID, opts)
-	// Add the rule to allow traffic from the loadbalancer
-	_, err = lSecRuleV2.Create(s.vServerSC, lSecRuleV2.NewCreateOpts(s.getProjectID(), opts))
-
-	if err != nil {
-		klog.Errorf("failed to create secgroup rule for secgroup %s: %v", newSecgroup.UUID, err)
-		return err
+		if err != nil {
+			klog.Errorf("failed to attach secgroup %s to cluster %s: %v", defaultSecgroup.UUID, pCluster.ID, err)
+			return err
+		}
 	}
 
-	// Attach the secgroup to entire minion node groups
-	_, err = lClusterV2.UpdateSecgroup(
-		s.vServerSC,
-		lClusterV2.NewUpdateSecgroupOpts(
-			s.getProjectID(),
-			&lClusterV2.UpdateSecgroupOpts{
-				ClusterID:   pCluster.ID,
-				Master:      false,
-				SecGroupIds: append(pCluster.MinionClusterSecGroupIDList, newSecgroup.UUID)}))
-
-	if err != nil {
-		klog.Errorf("failed to attach secgroup %s to cluster %s: %v", newSecgroup.UUID, pCluster.ID, err)
-		return err
-	}
+	klog.Infof("Attached default secgroup %s to cluster %s successfully", defaultSecgroup.UUID, pCluster.ID)
 
 	return nil
+}
+
+func (s *vLB) findDefaultSecgroup() (*lObjects.Secgroup, error) {
+	secgroups, err := lSecgroupV2.List(s.vServerSC, lSecgroupV2.NewListOpts(s.getProjectID(), consts.DEFAULT_SECGROP_NAME))
+	if err != nil {
+		klog.Errorf("failed to list secgroup by secgroup name [%s]", consts.DEFAULT_SECGROP_NAME)
+		return nil, err
+	}
+
+	if len(secgroups) < 1 {
+		klog.Errorf("the project [%s] has no default secgroup", s.getProjectID())
+		return nil, errors.NewErrNoDefaultSecgroup(s.getProjectID(), "")
+	}
+
+	for _, secgroup := range secgroups {
+		if strings.TrimSpace(strings.ToLower(secgroup.Description)) == consts.DEFAULT_SECGROUP_DESCRIPTION && secgroup.Name == consts.DEFAULT_SECGROP_NAME {
+			return secgroup, nil
+		}
+	}
+
+	klog.Errorf("the project [%s] has no default secgroup", s.getProjectID())
+	return nil, errors.NewErrNoDefaultSecgroup(s.getProjectID(), "")
 }
 
 func getNodeAddressForLB(node *lCoreV1.Node) (string, error) {

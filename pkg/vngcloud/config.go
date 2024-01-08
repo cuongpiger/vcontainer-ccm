@@ -29,8 +29,8 @@ const (
 const (
 	healthMonitorHealthyThreshold   = 3
 	healthMonitorUnhealthyThreshold = 3
-	healthMonitorInterval           = 30
 	healthMonitorTimeout            = 5
+	healthMonitorInterval           = 30
 )
 
 const (
