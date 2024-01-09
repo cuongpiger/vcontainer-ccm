@@ -25,25 +25,22 @@ import (
 	"strings"
 )
 
-const (
-	defaultL4PackageID = "lbp-96b6b072-aadb-4b58-9d5f-c16ad69d36aa"
-	defaultL7PackageID = "lbp-f562b658-0fd4-4fa6-9c57-c1a803ccbf86"
-)
-
-type VLBOpts struct {
-	Enabled        bool   `gcfg:"enabled"`         // if false, disables the controller
-	InternalLB     bool   `gcfg:"internal-lb"`     // default false
-	FlavorID       string `gcfg:"flavor-id"`       // flavor id of load balancer
-	MaxSharedLB    int    `gcfg:"max-shared-lb"`   //  Number of Services in maximum can share a single load balancer. Default 2
-	LBMethod       string `gcfg:"lb-method"`       // default to ROUND_ROBIN.
-	EnableVMonitor bool   `gcfg:"enable-vmonitor"` // default to false
+type VLBOpts struct { // if false, disables the controller
+	InternalLB         bool   `gcfg:"internal-lb"`           // default false
+	FlavorID           string `gcfg:"flavor-id"`             // flavor id of load balancer
+	MaxSharedLB        int    `gcfg:"max-shared-lb"`         //  Number of Services in maximum can share a single load balancer. Default 2
+	LBMethod           string `gcfg:"lb-method"`             // default to ROUND_ROBIN.
+	EnableVMonitor     bool   `gcfg:"enable-vmonitor"`       // default to false
+	DefaultL4PackageID string `gcfg:"default-l4-package-id"` // default to lbp-96b6b072-aadb-4b58-9d5f-c16ad69d36aa
 }
 
 type vLB struct {
-	vLBSC         *client.ServiceClient
-	vServerSC     *client.ServiceClient
+	vLBSC     *client.ServiceClient
+	vServerSC *client.ServiceClient
+
 	kubeClient    kubernetes.Interface
 	eventRecorder record.EventRecorder
+	vLbConfig     VLBOpts
 	extraInfo     *ExtraInfo
 }
 
@@ -72,7 +69,8 @@ func (s *vLB) EnsureLoadBalancer(
 	return status, mc.ObserveReconcile(err)
 }
 
-func (s *vLB) UpdateLoadBalancer(ctx context.Context, clusterName string, service *lCoreV1.Service, nodes []*lCoreV1.Node) error {
+func (s *vLB) UpdateLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) error {
+	klog.Infof("UpdateLoadBalancer: update load balancer for service %s/%s, the nodes are: %v", pService.Namespace, pService.Name, pNodes)
 	return nil
 }
 
@@ -247,14 +245,11 @@ func (s *vLB) checkService(pService *lCoreV1.Service, pNodes []*lCoreV1.Node, pS
 	pServiceConfig.internal = getBoolFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerInternal, false)
 	pServiceConfig.subnetID = pServiceConfig.getClusterSubnetID()
 
-	switch lbType := getStringFromServiceAnnotation(pService, ServiceAnnotationLoadBalancerType, "layer-4"); lbType {
-	case "layer-7":
-		pServiceConfig.lbType = lLoadBalancerV2.CreateOptsTypeOptLayer7
-		pServiceConfig.flavorID = getStringFromServiceAnnotation(pService, ServiceAnnotationPackageID, defaultL7PackageID)
-	default:
-		pServiceConfig.lbType = lLoadBalancerV2.CreateOptsTypeOptLayer4
-		pServiceConfig.flavorID = getStringFromServiceAnnotation(pService, ServiceAnnotationPackageID, defaultL4PackageID)
-	}
+	// Set option loadbalancer type is Layer 4 in the request option
+	pServiceConfig.lbType = lLoadBalancerV2.CreateOptsTypeOptLayer4
+
+	// Get the flavor ID from the service annotation, default is get from the cloud config file
+	pServiceConfig.flavorID = getStringFromServiceAnnotation(pService, ServiceAnnotationPackageID, s.vLbConfig.DefaultL4PackageID)
 
 	return nil
 }
@@ -585,12 +580,14 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 	for _, itemLb := range userLbs {
 		if foundLb := s.findLoadBalancer(lbName, userLbs, userCluster); foundLb != nil {
 			// Delete this loadbalancer
+			klog.V(5).Infof("deleting load balancer [UUID:%s]", itemLb.UUID)
 			err := lLoadBalancerV2.Delete(s.vLBSC, lLoadBalancerV2.NewDeleteOpts(s.getProjectID(), itemLb.UUID))
 			if err != nil {
-				klog.Errorf("failed to delete load balancer %s: %v", itemLb.UUID, err)
+				klog.Errorf("failed to delete load balancer [UUID:%s]: %v", itemLb.UUID, err)
 				return err
 			}
 
+			klog.V(5).Infof("deleted load balancer [UUID:%s] successfully", itemLb.UUID)
 			break
 		}
 	}

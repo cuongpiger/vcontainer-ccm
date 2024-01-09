@@ -62,6 +62,7 @@ func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
 		kubeClient:    s.kubeClient,
 		eventRecorder: s.eventRecorder,
 		extraInfo:     s.extraInfo,
+		vLbConfig:     s.vLBOpts,
 	}, true
 }
 

@@ -79,8 +79,6 @@ func readConfig(pCfg io.Reader) (Config, error) {
 
 	// Set default
 	config := Config{}
-	config.VLB.Enabled = true
-	// TODO: Read config file
 
 	err := gcfg.FatalOnly(gcfg.ReadInto(&config, pCfg))
 	if err != nil {

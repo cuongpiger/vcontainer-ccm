@@ -101,15 +101,14 @@ func GenPoolName(pClusterID string, pService *lCoreV1.Service, pProtocol string)
 }
 
 func GenListenerName(pClusterID string, pService *lCoreV1.Service, pProtocol string, pPort int) string {
-	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
 	port := fmt.Sprintf("%d", pPort)
-	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - len(port) - 2
+	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(port) - 2
 	if delta >= len(pProtocol) {
-		return fmt.Sprintf("%s-%s-%s", lbName, pProtocol, port)
+		return fmt.Sprintf("%s-%s", pProtocol, port)
 	}
 
 	delta = consts.DEFAULT_PORTAL_NAME_LENGTH - len(pProtocol) - len(port) - 2
-	return fmt.Sprintf("%s-%s-%s", lbName[:delta], pProtocol, port)
+	return fmt.Sprintf("%s-%s", pProtocol, port)
 }
 
 func GenSecgroupDescription(pClusterID string, pService *lCoreV1.Service, pLbID string) string {
