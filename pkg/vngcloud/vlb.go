@@ -1,13 +1,18 @@
 package vngcloud
 
 import (
-	"context"
+	lCtx "context"
 	"fmt"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/consts"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
-	lUtils "github.com/cuongpiger/vcontainer-ccm/pkg/utils"
-	"github.com/cuongpiger/vcontainer-ccm/pkg/utils/errors"
-	"github.com/vngcloud/vcontainer-sdk/client"
+	lStr "strings"
+
+	lCoreV1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
+	lNetUtils "k8s.io/utils/net"
+
+	lClient "github.com/vngcloud/vcontainer-sdk/client"
 	lObjects "github.com/vngcloud/vcontainer-sdk/vcontainer/objects"
 	lClusterV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster"
 	lClusterObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster/obj"
@@ -16,66 +21,62 @@ import (
 	lLbObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer/obj"
 	lPoolV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
 	lSecgroupV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/secgroup"
-	lCoreV1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
-	netutils "k8s.io/utils/net"
-	"strings"
+
+	lConsts "github.com/cuongpiger/vcontainer-ccm/pkg/consts"
+	lMetrics "github.com/cuongpiger/vcontainer-ccm/pkg/metrics"
+	lUtils "github.com/cuongpiger/vcontainer-ccm/pkg/utils"
+	lErrors "github.com/cuongpiger/vcontainer-ccm/pkg/utils/errors"
 )
 
-type VLBOpts struct { // if false, disables the controller
-	InternalLB         bool   `gcfg:"internal-lb"`           // default false
-	FlavorID           string `gcfg:"flavor-id"`             // flavor id of load balancer
-	MaxSharedLB        int    `gcfg:"max-shared-lb"`         //  Number of Services in maximum can share a single load balancer. Default 2
-	LBMethod           string `gcfg:"lb-method"`             // default to ROUND_ROBIN.
-	EnableVMonitor     bool   `gcfg:"enable-vmonitor"`       // default to false
-	DefaultL4PackageID string `gcfg:"default-l4-package-id"` // default to lbp-96b6b072-aadb-4b58-9d5f-c16ad69d36aa
-}
+type (
+	// VLbOpts is default vLB configurations that are loaded from the vcontainer-ccm config file
+	VLbOpts struct {
+		DefaultL4PackageID string `gcfg:"default-l4-package-id"` // default is load from cloud config file
+	}
 
-type vLB struct {
-	vLBSC     *client.ServiceClient
-	vServerSC *client.ServiceClient
+	// vLB is the implementation of the VNG CLOUD for actions on load balancer
+	vLB struct {
+		vLBSC     *lClient.ServiceClient
+		vServerSC *lClient.ServiceClient
 
-	kubeClient    kubernetes.Interface
-	eventRecorder record.EventRecorder
-	vLbConfig     VLBOpts
-	extraInfo     *ExtraInfo
-}
-
+		kubeClient    kubernetes.Interface
+		eventRecorder record.EventRecorder
+		vLbConfig     VLbOpts
+		extraInfo     *ExtraInfo
+	}
+)
 type listenerKey struct {
 	Protocol string
 	Port     int
 }
 
-func (s *vLB) GetLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) (*lCoreV1.LoadBalancerStatus, bool, error) {
-	mc := metrics.NewMetricContext("loadbalancer", "ensure")
+func (s *vLB) GetLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service) (*lCoreV1.LoadBalancerStatus, bool, error) {
+	mc := lMetrics.NewMetricContext("loadbalancer", "ensure")
 	klog.InfoS("GetLoadBalancer", "cluster", pClusterID, "service", klog.KObj(pService))
 	status, existed, err := s.ensureGetLoadBalancer(pCtx, pClusterID, pService)
 	return status, existed, mc.ObserveReconcile(err)
 }
 
-func (s *vLB) GetLoadBalancerName(_ context.Context, pClusterName string, pService *lCoreV1.Service) string {
+func (s *vLB) GetLoadBalancerName(_ lCtx.Context, pClusterName string, pService *lCoreV1.Service) string {
 	return lUtils.GenLoadBalancerName(pClusterName, pService)
 }
 
 func (s *vLB) EnsureLoadBalancer(
-	pCtx context.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) (*lCoreV1.LoadBalancerStatus, error) {
+	pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) (*lCoreV1.LoadBalancerStatus, error) {
 
-	mc := metrics.NewMetricContext("loadbalancer", "ensure")
+	mc := lMetrics.NewMetricContext("loadbalancer", "ensure")
 	klog.InfoS("EnsureLoadBalancer", "cluster", pClusterID, "service", klog.KObj(pService))
 	status, err := s.ensureLoadBalancer(pCtx, pClusterID, pService, pNodes)
 	return status, mc.ObserveReconcile(err)
 }
 
-func (s *vLB) UpdateLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) error {
+func (s *vLB) UpdateLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) error {
 	klog.Infof("UpdateLoadBalancer: update load balancer for service %s/%s, the nodes are: %v", pService.Namespace, pService.Name, pNodes)
 	return nil
 }
 
-func (s *vLB) EnsureLoadBalancerDeleted(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) error {
-	mc := metrics.NewMetricContext("loadbalancer", "ensure")
+func (s *vLB) EnsureLoadBalancerDeleted(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service) error {
+	mc := lMetrics.NewMetricContext("loadbalancer", "ensure")
 	klog.InfoS("EnsureLoadBalancerDeleted", "cluster", pClusterID, "service", klog.KObj(pService))
 	err := s.ensureDeleteLoadBalancer(pCtx, pClusterID, pService)
 	return mc.ObserveReconcile(err)
@@ -84,7 +85,7 @@ func (s *vLB) EnsureLoadBalancerDeleted(pCtx context.Context, pClusterID string,
 // ************************************************** PRIVATE METHODS **************************************************
 
 func (s *vLB) ensureLoadBalancer(
-	pCtx context.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) (rLbs *lCoreV1.LoadBalancerStatus, rErr error) {
+	pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) (rLbs *lCoreV1.LoadBalancerStatus, rErr error) {
 
 	patcher := newServicePatcher(s.kubeClient, pService)
 	defer func() {
@@ -267,7 +268,7 @@ func (s *vLB) createLoadBalancer(pLbName, pClusterName string, pService *lCoreV1
 		opts.Scheme = lLoadBalancerV2.CreateOptsSchemeOptInternal
 	}
 
-	mc := metrics.NewMetricContext("loadbalancer", "create")
+	mc := lMetrics.NewMetricContext("loadbalancer", "create")
 	klog.InfoS("CreateLoadBalancer", "cluster", pClusterName, "service", klog.KObj(pService), "lbName", pLbName)
 	newLb, err := lLoadBalancerV2.Create(s.vLBSC, lLoadBalancerV2.NewCreateOpts(s.extraInfo.ProjectID, opts))
 
@@ -302,14 +303,14 @@ func (s *vLB) waitLoadBalancerReady(pLbID string) (*lLbObjV2.LoadBalancer, error
 		Factor:   waitLoadbalancerFactor,
 		Steps:    waitLoadbalancerActiveSteps,
 	}, func() (done bool, err error) {
-		mc := metrics.NewMetricContext("loadbalancer", "get")
+		mc := lMetrics.NewMetricContext("loadbalancer", "get")
 		lb, err := lLoadBalancerV2.Get(s.vLBSC, lLoadBalancerV2.NewGetOpts(s.getProjectID(), pLbID))
 		if mc.ObserveReconcile(err) != nil {
 			klog.Errorf("failed to get load balancer %s: %v", pLbID, err)
 			return false, err
 		}
 
-		if strings.ToUpper(lb.Status) == ACTIVE_LOADBALANCER_STATUS {
+		if lStr.ToUpper(lb.Status) == ACTIVE_LOADBALANCER_STATUS {
 			klog.Infof("Load balancer %s is ready", pLbID)
 			resultLb = lb
 			return true, nil
@@ -335,7 +336,7 @@ func (s *vLB) checkListenerPorts(service *lCoreV1.Service, curListenerMapping ma
 		if lbListener, isPresent := curListenerMapping[key]; isPresent {
 			if lbListener.Name != listenerName {
 				klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
-				return errors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
+				return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
 			}
 
 			klog.Infof("the port %d and protocol %s is already existed", svcPort.Port, svcPort.Protocol)
@@ -450,7 +451,7 @@ func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pSer
 
 		_, err := getNodeAddressForLB(itemNode)
 		if err != nil {
-			if errors.IsErrNodeAddressNotFound(err) {
+			if lErrors.IsErrNodeAddressNotFound(err) {
 				klog.Warningf("failed to get address for node %s: %v", itemNode.Name, err)
 				continue
 			} else {
@@ -460,7 +461,7 @@ func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pSer
 
 		nodeAddress, err := nodeAddressForLB(itemNode, pServiceConfig.preferredIPFamily)
 		if err != nil {
-			if errors.IsErrNodeAddressNotFound(err) {
+			if lErrors.IsErrNodeAddressNotFound(err) {
 				klog.Warningf("failed to get address for node %s: %v", itemNode.Name, err)
 				continue
 			} else {
@@ -471,7 +472,7 @@ func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pSer
 		// It's 0 when AllocateLoadBalancerNodePorts=False
 		if pPort.NodePort != 0 {
 			poolMembers = append(poolMembers, lPoolV2.Member{
-				Backup:      true,
+				Backup:      false,
 				IpAddress:   nodeAddress,
 				Port:        int(pPort.NodePort),
 				Weight:      1,
@@ -486,7 +487,7 @@ func prepareMembers4Pool(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pSer
 func nodeAddressForLB(node *lCoreV1.Node, preferredIPFamily lCoreV1.IPFamily) (string, error) {
 	addrs := node.Status.Addresses
 	if len(addrs) == 0 {
-		return "", errors.NewErrNodeAddressNotFound(node.Name, "")
+		return "", lErrors.NewErrNodeAddressNotFound(node.Name, "")
 	}
 
 	allowedAddrTypes := []lCoreV1.NodeAddressType{lCoreV1.NodeInternalIP, lCoreV1.NodeExternalIP}
@@ -496,11 +497,11 @@ func nodeAddressForLB(node *lCoreV1.Node, preferredIPFamily lCoreV1.IPFamily) (s
 			if addr.Type == allowedAddrType {
 				switch preferredIPFamily {
 				case lCoreV1.IPv4Protocol:
-					if netutils.IsIPv4String(addr.Address) {
+					if lNetUtils.IsIPv4String(addr.Address) {
 						return addr.Address, nil
 					}
 				case lCoreV1.IPv6Protocol:
-					if netutils.IsIPv6String(addr.Address) {
+					if lNetUtils.IsIPv6String(addr.Address) {
 						return addr.Address, nil
 					}
 				default:
@@ -510,12 +511,11 @@ func nodeAddressForLB(node *lCoreV1.Node, preferredIPFamily lCoreV1.IPFamily) (s
 		}
 	}
 
-	return "", errors.NewErrNodeAddressNotFound(node.Name, "")
+	return "", lErrors.NewErrNodeAddressNotFound(node.Name, "")
 }
 
 func (s *vLB) ensureListener(pCluster *lClusterObjV2.Cluster, pLbID, pPoolID, pLbName string, pPort lCoreV1.ServicePort, pService *lCoreV1.Service) (*lObjects.Listener, error) {
-
-	mc := metrics.NewMetricContext("listener", "create")
+	mc := lMetrics.NewMetricContext("listener", "create")
 	newListener, err := lListenerV2.Create(s.vLBSC, lListenerV2.NewCreateOpts(
 		s.extraInfo.ProjectID,
 		pLbID,
@@ -560,7 +560,7 @@ func (s *vLB) findLoadBalancer(pLbName string, pLbs []*lLbObjV2.LoadBalancer, pC
 	return nil
 }
 
-func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) error {
+func (s *vLB) ensureDeleteLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service) error {
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
 	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
 	if lClusterV2.IsErrClusterNotFound(err) {
@@ -596,7 +596,7 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx context.Context, pClusterID string, 
 	return nil
 }
 
-func (s *vLB) ensureGetLoadBalancer(pCtx context.Context, pClusterID string, pService *lCoreV1.Service) (*lCoreV1.LoadBalancerStatus, bool, error) {
+func (s *vLB) ensureGetLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service) (*lCoreV1.LoadBalancerStatus, bool, error) {
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
 	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
 	if lClusterV2.IsErrClusterNotFound(err) {
@@ -665,31 +665,31 @@ func (s *vLB) ensureSecgroup(pCluster *lClusterObjV2.Cluster) error {
 }
 
 func (s *vLB) findDefaultSecgroup() (*lObjects.Secgroup, error) {
-	secgroups, err := lSecgroupV2.List(s.vServerSC, lSecgroupV2.NewListOpts(s.getProjectID(), consts.DEFAULT_SECGROP_NAME))
+	secgroups, err := lSecgroupV2.List(s.vServerSC, lSecgroupV2.NewListOpts(s.getProjectID(), lConsts.DEFAULT_SECGROP_NAME))
 	if err != nil {
-		klog.Errorf("failed to list secgroup by secgroup name [%s]", consts.DEFAULT_SECGROP_NAME)
+		klog.Errorf("failed to list secgroup by secgroup name [%s]", lConsts.DEFAULT_SECGROP_NAME)
 		return nil, err
 	}
 
 	if len(secgroups) < 1 {
 		klog.Errorf("the project [%s] has no default secgroup", s.getProjectID())
-		return nil, errors.NewErrNoDefaultSecgroup(s.getProjectID(), "")
+		return nil, lErrors.NewErrNoDefaultSecgroup(s.getProjectID(), "")
 	}
 
 	for _, secgroup := range secgroups {
-		if strings.TrimSpace(strings.ToLower(secgroup.Description)) == consts.DEFAULT_SECGROUP_DESCRIPTION && secgroup.Name == consts.DEFAULT_SECGROP_NAME {
+		if lStr.TrimSpace(lStr.ToLower(secgroup.Description)) == lConsts.DEFAULT_SECGROUP_DESCRIPTION && secgroup.Name == lConsts.DEFAULT_SECGROP_NAME {
 			return secgroup, nil
 		}
 	}
 
 	klog.Errorf("the project [%s] has no default secgroup", s.getProjectID())
-	return nil, errors.NewErrNoDefaultSecgroup(s.getProjectID(), "")
+	return nil, lErrors.NewErrNoDefaultSecgroup(s.getProjectID(), "")
 }
 
 func getNodeAddressForLB(node *lCoreV1.Node) (string, error) {
 	addrs := node.Status.Addresses
 	if len(addrs) == 0 {
-		return "", errors.NewErrNodeAddressNotFound(node.Name, "")
+		return "", lErrors.NewErrNodeAddressNotFound(node.Name, "")
 	}
 
 	for _, addr := range addrs {

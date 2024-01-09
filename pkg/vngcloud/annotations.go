@@ -8,9 +8,10 @@ import (
 const (
 	ServiceAnnotationLoadBalancerID        = "vcontainer.vngcloud.vn/load-balancer-id"
 	ServiceAnnotationPackageID             = "vcontainer.vngcloud.vn/package-id"
-	ServiceAnnotationLoadBalancerType      = "vcontainer.vngcloud.vn/load-balancer-type"
-	ServiceAnnotationLoadBalancerInternal  = "service.beta.kubernetes.io/vngcloud-internal-load-balancer"
 	ServiceAnnotationEnableSecgroupDefault = "vcontainer.vngcloud.vn/enable-secgroup-default"
+	ServiceAnnotationListenerProtocol      = "vcontainer.vngcloud.vn/listener-protocol"
+	ServiceAnnotationListenerPort          = "vcontainer.vngcloud.vn/listener-port"
+	ServiceAnnotationLoadBalancerInternal  = "service.beta.kubernetes.io/vngcloud-internal-load-balancer"
 )
 
 // getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting

@@ -9,7 +9,7 @@ import (
 type (
 	Config struct {
 		Global   vconSdkClient.AuthOpts
-		VLB      VLBOpts
+		VLB      VLbOpts
 		Metadata metadata.Opts
 	}
 )
