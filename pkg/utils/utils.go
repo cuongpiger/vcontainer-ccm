@@ -140,11 +140,19 @@ func ListWorkerNodes(pNodes []*lCoreV1.Node, pOnlyReadyNode bool) []*lCoreV1.Nod
 	return workerNodes
 }
 
-func CheckOwner(pCluster *lClusterObjV2.Cluster, pLb *lObjects.LoadBalancer) bool {
+func CheckOwner(pCluster *lClusterObjV2.Cluster, pLb *lObjects.LoadBalancer, pService *lCoreV1.Service) bool {
 	if pLb == nil {
 		return true
 	}
-	return true
+
+	svcAnnotations := pService.ObjectMeta.Annotations
+	if svcAnnotations != nil &&
+		len(svcAnnotations) > 0 &&
+		svcAnnotations[lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX+"/owner-cluster-id"] == pCluster.ID {
+		return true
+	}
+
+	return false
 }
 
 func ParsePoolAlgorithm(pOpt string) lPoolV2.CreateOptsAlgorithmOpt {
@@ -191,6 +199,6 @@ func ParseListenerProtocol(pPort lCoreV1.ServicePort) lListenerV2.CreateOptsList
 	case string(lListenerV2.CreateOptsListenerProtocolOptUDP):
 		return lListenerV2.CreateOptsListenerProtocolOptUDP
 	}
-	
+
 	return lListenerV2.CreateOptsListenerProtocolOptTCP
 }

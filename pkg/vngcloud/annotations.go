@@ -1,33 +1,36 @@
 package vngcloud
 
 import (
+	lConsts "github.com/cuongpiger/vcontainer-ccm/pkg/consts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"strconv"
 )
 
 const (
-	ServiceAnnotationLoadBalancerID            = "vcontainer.vngcloud.vn/load-balancer-id"        // set via annotation
-	ServiceAnnotationLoadBalancerName          = "vcontainer.vngcloud.vn/load-balancer-name"      // only set via the annotation
-	ServiceAnnotationPackageID                 = "vcontainer.vngcloud.vn/package-id"              // both annotation and cloud-config
-	ServiceAnnotationEnableSecgroupDefault     = "vcontainer.vngcloud.vn/enable-secgroup-default" // set via annotation
-	ServiceAnnotationIdleTimeoutClient         = "vcontainer.vngcloud.vn/idle-timeout-client"     // both annotation and cloud-config
-	ServiceAnnotationIdleTimeoutMember         = "vcontainer.vngcloud.vn/idle-timeout-member"     // both annotation and cloud-config
-	ServiceAnnotationIdleTimeoutConnection     = "vcontainer.vngcloud.vn/idle-timeout-connection" // both annotation and cloud-config
-	ServiceAnnotationListenerAllowedCIDRs      = "vcontainer.vngcloud.vn/listener-allowed-cidrs"  // both annotation and cloud-config
-	ServiceAnnotationPoolAlgorithm             = "vcontainer.vngcloud.vn/pool-algorithm"          // both annotation and cloud-config
-	ServiceAnnotationPoolProtocol              = "vcontainer.vngcloud.vn/pool-protocol"           // both annotation and cloud-config
-	ServiceAnnotationMonitorProtocol           = "vcontainer.vngcloud.vn/monitor-protocol"        // both annotation and cloud-config
-	ServiceAnnotationHealthyThreshold          = "vcontainer.vngcloud.vn/monitor-healthy-threshold"
-	ServiceAnnotationMonitorUnhealthyThreshold = "vcontainer.vngcloud.vn/monitor-unhealthy-threshold"
-	ServiceAnnotationMonitorTimeout            = "vcontainer.vngcloud.vn/monitor-timeout"
-	ServiceAnnotationMonitorInterval           = "vcontainer.vngcloud.vn/monitor-interval"
-	ServiceAnnotationMonitorHTTPMethod         = "vcontainer.vngcloud.vn/monitor-http-method"
-	ServiceAnnotationMonitorHTTPPath           = "vcontainer.vngcloud.vn/monitor-http-path"
-	ServiceAnnotationMonitorHTTPSuccessCode    = "vcontainer.vngcloud.vn/monitor-http-success-code"
-	ServiceAnnotationMonitorHTTPVersion        = "vcontainer.vngcloud.vn/monitor-http-version"
-	ServiceAnnotationMonitorHTTPDomainName     = "vcontainer.vngcloud.vn/monitor-http-domain-name"
+	ServiceAnnotationLoadBalancerID            = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/load-balancer-id"        // set via annotation
+	ServiceAnnotationLoadBalancerName          = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/load-balancer-name"      // only set via the annotation
+	ServiceAnnotationPackageID                 = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/package-id"              // both annotation and cloud-config
+	ServiceAnnotationEnableSecgroupDefault     = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/enable-secgroup-default" // set via annotation
+	ServiceAnnotationIdleTimeoutClient         = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/idle-timeout-client"     // both annotation and cloud-config
+	ServiceAnnotationIdleTimeoutMember         = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/idle-timeout-member"     // both annotation and cloud-config
+	ServiceAnnotationIdleTimeoutConnection     = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/idle-timeout-connection" // both annotation and cloud-config
+	ServiceAnnotationListenerAllowedCIDRs      = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/listener-allowed-cidrs"  // both annotation and cloud-config
+	ServiceAnnotationPoolAlgorithm             = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/pool-algorithm"          // both annotation and cloud-config
+	ServiceAnnotationPoolProtocol              = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/pool-protocol"           // both annotation and cloud-config
+	ServiceAnnotationMonitorProtocol           = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-protocol"        // both annotation and cloud-config
+	ServiceAnnotationHealthyThreshold          = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-healthy-threshold"
+	ServiceAnnotationMonitorUnhealthyThreshold = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-unhealthy-threshold"
+	ServiceAnnotationMonitorTimeout            = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-timeout"
+	ServiceAnnotationMonitorInterval           = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-interval"
+	ServiceAnnotationMonitorHTTPMethod         = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-method"
+	ServiceAnnotationMonitorHTTPPath           = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-path"
+	ServiceAnnotationMonitorHTTPSuccessCode    = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-success-code"
+	ServiceAnnotationMonitorHTTPVersion        = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-version"
+	ServiceAnnotationMonitorHTTPDomainName     = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-domain-name"
 	ServiceAnnotationLoadBalancerInternal      = "service.beta.kubernetes.io/vngcloud-internal-load-balancer"
+
+	serviceAnnotionOwnerClusterID = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/owner-cluster-id"
 )
 
 // getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting

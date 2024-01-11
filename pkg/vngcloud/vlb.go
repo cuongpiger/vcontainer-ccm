@@ -62,10 +62,12 @@ type (
 		extraInfo     *ExtraInfo
 	}
 
+	// Config is the configuration for the VNG CLOUD load balancer controller,
+	// it is loaded from the vcontainer-ccm config file
 	Config struct {
-		Global   lSdkClient.AuthOpts
-		VLB      VLbOpts
-		Metadata lMetadata.Opts
+		Global   lSdkClient.AuthOpts // global configurations, it is loaded from Helm helpers and values.yaml
+		VLB      VLbOpts             // vLB configurations, it is loaded from Helm helpers and values.yaml
+		Metadata lMetadata.Opts      // metadata service config, by default is empty
 	}
 )
 
@@ -156,7 +158,8 @@ func (s *vLB) ensureLoadBalancer(
 		userLb               *lObjects.LoadBalancer   // hold the loadbalancer that user want to reuse or create
 		lsLbs                []*lObjects.LoadBalancer // hold the list of loadbalancer existed in the project of this cluster
 		lbListeners          []*lObjects.Listener     // hold the list of listeners of the loadbalancer attach to this cluster
-		createNewLb, isOwner bool                     // check the loadbalancer is created and this cluster is the owner
+		svcAnnotations       map[string]string
+		createNewLb, isOwner bool // check the loadbalancer is created and this cluster is the owner
 
 		svcConf            = new(serviceConfig)                                // the lb configurations CAN be applied to create or update
 		curListenerMapping = make(map[listenerKey]*lObjects.Listener)          // this use to check conflict port and protocol
@@ -195,8 +198,8 @@ func (s *vLB) ensureLoadBalancer(
 			return nil, lErrors.NewErrConflictServiceAndCloud("the loadbalancer type of the original loadbalancer and service file are not match")
 		}
 
-		isOwner = lUtils.CheckOwner(userCluster, userLb)
 		createNewLb = false
+		svcAnnotations[ServiceAnnotationLoadBalancerID] = svcConf.lbID
 	} else {
 		// User want you to create a new loadbalancer for this service
 		klog.V(5).Infof("did not specify load balancer ID, maybe creating a new one")
@@ -211,7 +214,7 @@ func (s *vLB) ensureLoadBalancer(
 	}
 
 	userLb = s.findLoadBalancer(lbName, lsLbs, userCluster)
-	isOwner = lUtils.CheckOwner(userCluster, userLb)
+	isOwner = lUtils.CheckOwner(userCluster, userLb, pService)
 	createNewLb = userLb == nil
 
 	if isOwner && createNewLb {
@@ -220,6 +223,9 @@ func (s *vLB) ensureLoadBalancer(
 			klog.Errorf("failed to create load balancer for service %s/%s: %v", pService.Namespace, pService.Name, err)
 			return nil, err
 		}
+
+		svcAnnotations[serviceAnnotionOwnerClusterID] = userCluster.ID
+		svcAnnotations[ServiceAnnotationLoadBalancerID] = userLb.UUID
 	}
 
 	// Check ports are conflict or not
@@ -229,16 +235,19 @@ func (s *vLB) ensureLoadBalancer(
 		return nil, err
 	}
 
-	// Loop via the listeners of this loadbalancer to get the mapping of port and protocol
-	for i, itemListener := range lbListeners {
-		key := listenerKey{Protocol: itemListener.Protocol, Port: itemListener.ProtocolPort}
-		curListenerMapping[key] = lbListeners[i]
-	}
+	// If this loadbalancer has some listeners
+	if lbListeners != nil && len(lbListeners) > 0 {
+		// Loop via the listeners of this loadbalancer to get the mapping of port and protocol
+		for i, itemListener := range lbListeners {
+			key := listenerKey{Protocol: itemListener.Protocol, Port: itemListener.ProtocolPort}
+			curListenerMapping[key] = lbListeners[i]
+		}
 
-	// Check the port and protocol conflict on the listeners of this loadbalancer
-	if err = s.checkListeners(pService, curListenerMapping, userCluster); err != nil {
-		klog.Errorf("the port and protocol is conflict: %v", err)
-		return nil, err
+		// Check the port and protocol conflict on the listeners of this loadbalancer
+		if err = s.checkListeners(pService, curListenerMapping, userCluster, userLb); err != nil {
+			klog.Errorf("the port and protocol is conflict: %v", err)
+			return nil, err
+		}
 	}
 
 	// Ensure pools and listener for this loadbalancer
@@ -258,7 +267,7 @@ func (s *vLB) ensureLoadBalancer(
 			return nil, err
 		}
 
-		klog.Infof("Created listener and pool for load balancer %s successfully", userLb.UUID)
+		klog.Infof("created listener and pool for load balancer %s successfully", userLb.UUID)
 	}
 	klog.V(5).Infof("processing listeners and pools completely")
 
@@ -277,6 +286,7 @@ func (s *vLB) ensureLoadBalancer(
 	}
 
 	if getBoolFromServiceAnnotation(pService, ServiceAnnotationEnableSecgroupDefault, true) {
+		klog.V(5).Infof("processing security group")
 		// Update the security group
 		if err = s.ensureSecgroup(userCluster); err != nil {
 			klog.Errorf("failed to update security group for load balancer %s: %v", userLb.UUID, err)
@@ -284,10 +294,14 @@ func (s *vLB) ensureLoadBalancer(
 		}
 	}
 
+	// Update the annatation for the K8s service
+	s.updateK8sServiceAnnotations(pService, svcAnnotations)
+
+	klog.V(5).Infof("processing load balancer status")
 	lbStatus := s.createLoadBalancerStatus(userLb.Address)
 
 	klog.Infof(
-		"Load balancer %s for service %s/%s is ready to use for Kubernetes controller",
+		"load balancer %s for service %s/%s is ready to use for Kubernetes controller",
 		lbName, pService.Namespace, pService.Name)
 	return lbStatus, nil
 }
@@ -728,7 +742,8 @@ func (s *vLB) findLoadBalancer(pLbName string, pLbs []*lObjects.LoadBalancer, //
 
 // checkListeners checks if there is conflict for ports.
 func (s *vLB) checkListeners(
-	pService *lCoreV1.Service, pListenerMapping map[listenerKey]*lObjects.Listener, pCluster *lClusterObjV2.Cluster) error {
+	pService *lCoreV1.Service, pListenerMapping map[listenerKey]*lObjects.Listener, // params
+	pCluster *lClusterObjV2.Cluster, pLb *lObjects.LoadBalancer) error { // params and returns
 
 	for _, svcPort := range pService.Spec.Ports {
 		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
@@ -741,10 +756,49 @@ func (s *vLB) checkListeners(
 			}
 
 			klog.Infof("the port %d and protocol %s is already existed", svcPort.Port, svcPort.Protocol)
+		} else if lbListener.Name == listenerName {
+			// If the listener is already existed, but the port and protocol is not correct
+			klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
+			poolID := lbListener.DefaultPoolUUID
+
+			if err := lPoolV2.Delete(
+				s.vLbSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, poolID)); err != nil {
+				klog.Errorf("failed to delete pool %s for load balancer %s: %v", poolID, pLb.UUID, err)
+				return err
+			}
+
+			klog.V(5).Infof("waiting to delete pool %s for load balancer %s complete", poolID, pLb.UUID)
+			if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+				return err
+			}
+
+			if err := lListenerV2.Delete(
+				s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, lbListener.ID)); err != nil {
+				klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLb.UUID, err)
+				return err
+			}
+
+			klog.V(5).Infof("waiting to delete listener %s for load balancer %s complete", lbListener.ID, pLb.UUID)
+			if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+				return err
+			}
 		}
 	}
 
+	klog.Infof("the port and protocol is not conflict")
 	return nil
+}
+
+func (s *vLB) updateK8sServiceAnnotations(pService *lCoreV1.Service, pNewAnnotations map[string]string) {
+	if pService.ObjectMeta.Annotations == nil {
+		pService.ObjectMeta.Annotations = map[string]string{}
+	}
+
+	for key, value := range pNewAnnotations {
+		pService.ObjectMeta.Annotations[key] = value
+	}
 }
 
 // ********************************************* DIRECTLY SUPPORT FUNCTIONS ********************************************
