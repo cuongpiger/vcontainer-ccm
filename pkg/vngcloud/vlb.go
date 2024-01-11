@@ -120,8 +120,7 @@ func (s *vLB) GetLoadBalancerName(_ lCtx.Context, pClusterName string, pService 
 
 	if len(lbName) > 0 {
 		lbName = fmt.Sprintf("%s-%s", lbPrefixName, lbName)
-		return fmt.Sprintf(
-			"%s-%s", lbPrefixName, lbName)[:lUtils.MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)]
+		return lbName[:lUtils.MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)]
 	} else {
 		return genName
 	}
