@@ -38,7 +38,7 @@ func NewVContainer(pCfg Config) (*VContainer, error) {
 
 	return &VContainer{
 		provider:  provider,
-		vLBOpts:   pCfg.VLB,
+		vLbOpts:   pCfg.VLB,
 		config:    &pCfg,
 		extraInfo: extraInfo,
 	}, nil

@@ -18,7 +18,7 @@ import (
 type (
 	VContainer struct {
 		provider     *vconSdkClient.ProviderClient
-		vLBOpts      VLBOpts
+		vLbOpts      VLbOpts
 		metadataOpts metadata2.Opts
 		config       *Config
 		extraInfo    *ExtraInfo
@@ -62,7 +62,7 @@ func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
 		kubeClient:    s.kubeClient,
 		eventRecorder: s.eventRecorder,
 		extraInfo:     s.extraInfo,
-		vLbConfig:     s.vLBOpts,
+		vLbConfig:     s.vLbOpts,
 	}, true
 }
 

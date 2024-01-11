@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	lStr "strings"
 	"time"
 
 	lCoreV1 "k8s.io/api/core/v1"
@@ -12,11 +13,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
 
-	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
-	"github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
-	lSecRuleV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/network/v2/extensions/secgroup_rule"
+	lConsts "github.com/cuongpiger/vcontainer-ccm/pkg/consts"
 
-	"github.com/cuongpiger/vcontainer-ccm/pkg/consts"
+	lObjects "github.com/vngcloud/vcontainer-sdk/vcontainer/objects"
+	lClusterObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster/obj"
+	lListenerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
+	lLoadBalancerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
+	lPoolV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
 )
 
 type MyDuration struct {
@@ -52,86 +55,23 @@ func PatchService(ctx context.Context, client clientset.Interface, cur, mod *lCo
 	return nil
 }
 
-// Sprintf255 formats according to a format specifier and returns the resulting string with a maximum length of 255 characters.
-func Sprintf50(format string, args ...interface{}) string {
-	return CutString50(fmt.Sprintf(format, args...))
-}
-
-// CutString255 makes sure the string length doesn't exceed 255, which is usually the maximum string length in OpenStack.
-func CutString50(original string) string {
-	ret := original
-	if len(original) > 50 {
-		ret = original[:50]
-	}
-	return ret
-}
-
-func GetVLBProtocolOpt(pPort lCoreV1.ServicePort) pool.CreateOptsProtocolOpt {
-	// Only support TCP at this version
-	return pool.CreateOptsProtocolOptTCP
-}
-
-func GetListenerProtocolOpt(pPort lCoreV1.ServicePort) listener.CreateOptsListenerProtocolOpt {
-	// Only support TCP at this version
-	return listener.CreateOptsListenerProtocolOptTCP
-}
-
-func GetSecgroupRuleProtocolOpt(pPort lCoreV1.ServicePort) lSecRuleV2.CreateOptsProtocolOpt {
-	// Only support TCP at this version
-	return lSecRuleV2.CreateOptsProtocolOptTCP
-}
-
-func GetSecgroupRuleEthernetType(pIpFam lCoreV1.IPFamily) lSecRuleV2.CreateOptsEtherTypeOpt {
-	if pIpFam == lCoreV1.IPv6Protocol {
-		return lSecRuleV2.CreateOptsEtherTypeOptIPv6
+func IsPoolProtocolValid(pPool *lObjects.Pool, pPort lCoreV1.ServicePort, pPoolName string) bool {
+	if pPool != nil &&
+		lStr.ToUpper(lStr.TrimSpace(pPool.Protocol)) != lStr.ToUpper(lStr.TrimSpace(string(pPort.Protocol))) &&
+		pPoolName == pPool.Name {
+		return false
 	}
 
-	return lSecRuleV2.CreateOptsEtherTypeOptIPv4
+	return true
 }
 
-func GenPoolName(pClusterID string, pService *lCoreV1.Service, pProtocol string) string {
-	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
-	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - 1
-	if delta >= len(pProtocol) {
-		return fmt.Sprintf("%s-%s", lbName, pProtocol)
+func GenListenerAndPoolName(pClusterID string, pService *lCoreV1.Service) string {
+	serviceName := GenLoadBalancerName(pClusterID, pService)
+	if lConsts.DEFAULT_PORTAL_NAME_LENGTH-len(serviceName) >= 0 {
+		return serviceName
 	}
 
-	delta = consts.DEFAULT_PORTAL_NAME_LENGTH - len(pProtocol) - 1
-	return fmt.Sprintf("%s-%s", lbName[:delta], pProtocol)
-}
-
-func GenListenerName(pClusterID string, pService *lCoreV1.Service, pProtocol string, pPort int) string {
-	port := fmt.Sprintf("%d", pPort)
-	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(port) - 2
-	if delta >= len(pProtocol) {
-		return fmt.Sprintf("%s-%s", pProtocol, port)
-	}
-
-	delta = consts.DEFAULT_PORTAL_NAME_LENGTH - len(pProtocol) - len(port) - 2
-	return fmt.Sprintf("%s-%s", pProtocol, port)
-}
-
-func GenSecgroupDescription(pClusterID string, pService *lCoreV1.Service, pLbID string) string {
-	lbName := GenLoadBalancerDescription(pClusterID, pService)
-	delta := consts.DEFAULT_PORTAL_DESCRIPTION_LENGTH - len(lbName) - 1
-	if delta >= len(pLbID) {
-		return fmt.Sprintf("%s-%s", lbName, pLbID)
-	}
-
-	delta = consts.DEFAULT_PORTAL_DESCRIPTION_LENGTH - len(pLbID) - 1
-	return fmt.Sprintf("%s-%s", lbName[:delta], pLbID)
-}
-
-func GenSecgroupName(pClusterID string, pService *lCoreV1.Service, pProtocol string, pPort int) string {
-	lbName := GenLoadBalancerName(pClusterID, pService)[len(consts.DEFAULT_LB_PREFIX_NAME)+1:]
-	port := fmt.Sprintf("%d", pPort)
-	delta := consts.DEFAULT_PORTAL_NAME_LENGTH - len(lbName) - len(port) - 2
-	if delta >= len(pProtocol) {
-		return fmt.Sprintf("%s-%s-%s", lbName, pProtocol, port)
-	}
-
-	delta = consts.DEFAULT_PORTAL_NAME_LENGTH - len(pProtocol) - len(port) - 2
-	return fmt.Sprintf("%s-%s-%s", lbName[:delta], pProtocol, port)
+	return serviceName[:lConsts.DEFAULT_PORTAL_NAME_LENGTH]
 }
 
 /*
@@ -146,19 +86,111 @@ RETURN:
 */
 func GenLoadBalancerName(pClusterID string, pService *lCoreV1.Service) string {
 	lbName := fmt.Sprintf(
-		"%s-%s-%s_%s", consts.DEFAULT_LB_PREFIX_NAME, pClusterID[8:19], pService.Name, pService.Namespace)
-	return lbName[:MinInt(len(lbName), consts.DEFAULT_PORTAL_NAME_LENGTH)]
+		"%s-%s_%s",
+		GenLoadBalancerPrefixName(pClusterID),
+		pService.Namespace, pService.Name)
+	return lbName[:MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)]
 }
 
-func GenLoadBalancerDescription(pClusterID string, pService *lCoreV1.Service) string {
+func GenLoadBalancerPrefixName(pClusterID string) string {
 	lbName := fmt.Sprintf(
-		"%s-%s-%s_%s", consts.DEFAULT_LB_PREFIX_NAME, pClusterID[8:19], pService.Name, pService.Namespace)
-	return lbName[:MinInt(len(lbName), consts.DEFAULT_PORTAL_DESCRIPTION_LENGTH)]
+		"%s-%s",
+		lConsts.DEFAULT_LB_PREFIX_NAME,
+		pClusterID[lConsts.DEFAULT_VLB_ID_PIECE_START_INDEX:lConsts.DEFAULT_VLB_ID_PIECE_START_INDEX+lConsts.DEFAULT_VLB_ID_PIECE_LENGTH])
+	return lbName
 }
-
 func MinInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
+}
+
+func ListWorkerNodes(pNodes []*lCoreV1.Node, pOnlyReadyNode bool) []*lCoreV1.Node {
+	var workerNodes []*lCoreV1.Node
+
+	for _, node := range pNodes {
+		// Ignore master nodes
+		if _, ok := node.GetObjectMeta().GetLabels()[lConsts.DEFAULT_K8S_MASTER_LABEL]; ok {
+			continue
+		}
+
+		// If the status of node is not considered, add it to the list
+		if !pOnlyReadyNode {
+			workerNodes = append(workerNodes, node)
+			continue
+		}
+
+		// If this worker does not have any condition, ignore it
+		if len(node.Status.Conditions) < 1 {
+			continue
+		}
+
+		// Only consider ready nodes
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == lCoreV1.NodeReady && condition.Status != lCoreV1.ConditionTrue {
+				continue
+			}
+		}
+
+		// This is a truly well worker, add it to the list
+		workerNodes = append(workerNodes, node)
+	}
+
+	return workerNodes
+}
+
+func CheckOwner(pCluster *lClusterObjV2.Cluster, pLb *lObjects.LoadBalancer) bool {
+	if pLb == nil {
+		return true
+	}
+	return true
+}
+
+func ParsePoolAlgorithm(pOpt string) lPoolV2.CreateOptsAlgorithmOpt {
+	opt := lStr.Replace(lStr.TrimSpace(lStr.ToLower(pOpt)), "-", "_", -1)
+	switch opt {
+	case string(lPoolV2.CreateOptsAlgorithmOptSourceIP):
+		return lPoolV2.CreateOptsAlgorithmOptRoundRobin
+	case string(lPoolV2.CreateOptsAlgorithmOptLeastConn):
+		return lPoolV2.CreateOptsAlgorithmOptLeastConn
+	}
+	return lPoolV2.CreateOptsAlgorithmOptRoundRobin
+}
+
+func ParsePoolProtocol(pOpt string) lPoolV2.CreateOptsProtocolOpt {
+	opt := lStr.TrimSpace(lStr.ToUpper(pOpt))
+	switch opt {
+	case string(lPoolV2.CreateOptsProtocolOptProxy):
+		return lPoolV2.CreateOptsProtocolOptProxy
+	}
+	return lPoolV2.CreateOptsProtocolOptTCP
+}
+
+func ParseMonitorProtocol(pOpt string) lPoolV2.CreateOptsHealthCheckProtocolOpt {
+	opt := lStr.TrimSpace(lStr.ToUpper(pOpt))
+	switch opt {
+	case string(lPoolV2.CreateOptsHealthCheckProtocolOptHTTP):
+		return lPoolV2.CreateOptsHealthCheckProtocolOptHTTP
+	case string(lPoolV2.CreateOptsHealthCheckProtocolOptHTTPs):
+		return lPoolV2.CreateOptsHealthCheckProtocolOptHTTPs
+	}
+	return lPoolV2.CreateOptsHealthCheckProtocolOptTCP
+}
+
+func ParseLoadBalancerScheme(pInternal bool) lLoadBalancerV2.CreateOptsSchemeOpt {
+	if pInternal {
+		return lLoadBalancerV2.CreateOptsSchemeOptInternal
+	}
+	return lLoadBalancerV2.CreateOptsSchemeOptInternet
+}
+
+func ParseListenerProtocol(pPort lCoreV1.ServicePort) lListenerV2.CreateOptsListenerProtocolOpt {
+	opt := lStr.TrimSpace(lStr.ToUpper(string(pPort.Protocol)))
+	switch opt {
+	case string(lListenerV2.CreateOptsListenerProtocolOptUDP):
+		return lListenerV2.CreateOptsListenerProtocolOptUDP
+	}
+	
+	return lListenerV2.CreateOptsListenerProtocolOptTCP
 }

@@ -84,3 +84,67 @@ type ErrConflictService struct {
 	Protocol string
 	vconError.BaseError
 }
+
+// ************************************************ ErrServicePortEmpty ************************************************
+
+func NewErrServicePortEmpty() vconError.IErrorBuilder {
+	err := new(ErrServicePortEmpty)
+	return err
+}
+
+func IsErrServicePortEmpty(pErr error) bool {
+	_, ok := pErr.(*ErrServicePortEmpty)
+	return ok
+}
+
+func (s *ErrServicePortEmpty) Error() string {
+	s.DefaultError = "service port is empty"
+	return s.ChoseErrString()
+}
+
+type ErrServicePortEmpty struct {
+	vconError.BaseError
+}
+
+// ************************************************** NoNodeAvailable **************************************************
+
+func NewNoNodeAvailable() vconError.IErrorBuilder {
+	err := new(NoNodeAvailable)
+	return err
+}
+
+func IsNoNodeAvailable(pErr error) bool {
+	_, ok := pErr.(*NoNodeAvailable)
+	return ok
+}
+
+func (s *NoNodeAvailable) Error() string {
+	s.DefaultError = "no node available in the cluster"
+	return s.ChoseErrString()
+}
+
+type NoNodeAvailable struct {
+	vconError.BaseError
+}
+
+// ********************************************* ErrConflictServiceAndCloud ********************************************
+
+func NewErrConflictServiceAndCloud(pInfo string) vconError.IErrorBuilder {
+	err := new(ErrConflictServiceAndCloud)
+	err.Info = pInfo
+	return err
+}
+
+func IsErrConflictServiceAndCloud(pErr error) bool {
+	_, ok := pErr.(*ErrConflictServiceAndCloud)
+	return ok
+}
+
+func (s *ErrConflictServiceAndCloud) Error() string {
+	s.DefaultError = "conflict between service and VNG CLOUD"
+	return s.ChoseErrString()
+}
+
+type ErrConflictServiceAndCloud struct {
+	vconError.BaseError
+}

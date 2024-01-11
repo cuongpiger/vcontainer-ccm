@@ -3,15 +3,31 @@ package vngcloud
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	"strconv"
 )
 
 const (
-	ServiceAnnotationLoadBalancerID        = "vcontainer.vngcloud.vn/load-balancer-id"
-	ServiceAnnotationPackageID             = "vcontainer.vngcloud.vn/package-id"
-	ServiceAnnotationEnableSecgroupDefault = "vcontainer.vngcloud.vn/enable-secgroup-default"
-	ServiceAnnotationListenerProtocol      = "vcontainer.vngcloud.vn/listener-protocol"
-	ServiceAnnotationListenerPort          = "vcontainer.vngcloud.vn/listener-port"
-	ServiceAnnotationLoadBalancerInternal  = "service.beta.kubernetes.io/vngcloud-internal-load-balancer"
+	ServiceAnnotationLoadBalancerID            = "vcontainer.vngcloud.vn/load-balancer-id"        // set via annotation
+	ServiceAnnotationLoadBalancerName          = "vcontainer.vngcloud.vn/load-balancer-name"      // only set via the annotation
+	ServiceAnnotationPackageID                 = "vcontainer.vngcloud.vn/package-id"              // both annotation and cloud-config
+	ServiceAnnotationEnableSecgroupDefault     = "vcontainer.vngcloud.vn/enable-secgroup-default" // set via annotation
+	ServiceAnnotationIdleTimeoutClient         = "vcontainer.vngcloud.vn/idle-timeout-client"     // both annotation and cloud-config
+	ServiceAnnotationIdleTimeoutMember         = "vcontainer.vngcloud.vn/idle-timeout-member"     // both annotation and cloud-config
+	ServiceAnnotationIdleTimeoutConnection     = "vcontainer.vngcloud.vn/idle-timeout-connection" // both annotation and cloud-config
+	ServiceAnnotationListenerAllowedCIDRs      = "vcontainer.vngcloud.vn/listener-allowed-cidrs"  // both annotation and cloud-config
+	ServiceAnnotationPoolAlgorithm             = "vcontainer.vngcloud.vn/pool-algorithm"          // both annotation and cloud-config
+	ServiceAnnotationPoolProtocol              = "vcontainer.vngcloud.vn/pool-protocol"           // both annotation and cloud-config
+	ServiceAnnotationMonitorProtocol           = "vcontainer.vngcloud.vn/monitor-protocol"        // both annotation and cloud-config
+	ServiceAnnotationHealthyThreshold          = "vcontainer.vngcloud.vn/monitor-healthy-threshold"
+	ServiceAnnotationMonitorUnhealthyThreshold = "vcontainer.vngcloud.vn/monitor-unhealthy-threshold"
+	ServiceAnnotationMonitorTimeout            = "vcontainer.vngcloud.vn/monitor-timeout"
+	ServiceAnnotationMonitorInterval           = "vcontainer.vngcloud.vn/monitor-interval"
+	ServiceAnnotationMonitorHTTPMethod         = "vcontainer.vngcloud.vn/monitor-http-method"
+	ServiceAnnotationMonitorHTTPPath           = "vcontainer.vngcloud.vn/monitor-http-path"
+	ServiceAnnotationMonitorHTTPSuccessCode    = "vcontainer.vngcloud.vn/monitor-http-success-code"
+	ServiceAnnotationMonitorHTTPVersion        = "vcontainer.vngcloud.vn/monitor-http-version"
+	ServiceAnnotationMonitorHTTPDomainName     = "vcontainer.vngcloud.vn/monitor-http-domain-name"
+	ServiceAnnotationLoadBalancerInternal      = "service.beta.kubernetes.io/vngcloud-internal-load-balancer"
 )
 
 // getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
@@ -30,6 +46,23 @@ func getStringFromServiceAnnotation(service *corev1.Service, annotationKey strin
 		klog.V(4).Infof("Could not find a Service Annotation; falling back on cloud-config setting: %v = %v", annotationKey, defaultSetting)
 	}
 
+	return defaultSetting
+}
+
+// getIntFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's integer value or a specified defaultSetting
+func getIntFromServiceAnnotation(service *corev1.Service, annotationKey string, defaultSetting int) int {
+	klog.V(4).Infof("getIntFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		returnValue, err := strconv.Atoi(annotationValue)
+		if err != nil {
+			klog.Warningf("Could not parse int value from %q, failing back to default %s = %v, %v", annotationValue, annotationKey, defaultSetting, err)
+			return defaultSetting
+		}
+
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		return returnValue
+	}
+	klog.V(4).Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
 	return defaultSetting
 }
 
