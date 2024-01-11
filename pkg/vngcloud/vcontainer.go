@@ -57,7 +57,7 @@ func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
 		s.provider, "vserver-gateway")
 
 	return &vLB{
-		vLBSC:         vlb,
+		vLbSC:         vlb,
 		vServerSC:     vserver,
 		kubeClient:    s.kubeClient,
 		eventRecorder: s.eventRecorder,

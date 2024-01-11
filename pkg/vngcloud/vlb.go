@@ -46,7 +46,7 @@ type (
 		DefaultMonitorInterval           int    `gcfg:"default-monitor-interval"`
 		DefaultMonitorHttpMethod         string `gcfg:"default-monitor-http-method"`
 		DefaultMonitorHttpPath           string `gcfg:"default-monitor-http-path"`
-		DefaultMonitorHttpSuccessCode    int    `gcfg:"default-monitor-http-success-code"`
+		DefaultMonitorHttpSuccessCode    string `gcfg:"default-monitor-http-success-code"`
 		DefaultMonitorHttpVersion        string `gcfg:"default-monitor-http-version"`
 		DefaultMonitorHttpDomainName     string `gcfg:"default-monitor-http-domain-name"`
 	}
@@ -73,30 +73,30 @@ type (
 
 type (
 	serviceConfig struct {
-		internal                      bool
-		lbID                          string
-		preferredIPFamily             lCoreV1.IPFamily // preferred (the first) IP family indicated in service's `spec.ipFamilies`
-		flavorID                      string
-		lbType                        lLoadBalancerV2.CreateOptsTypeOpt
-		projectID                     string
-		subnetID                      string
-		isOwner                       bool
-		allowedCIRDs                  string
-		idleTimeoutClient             int
-		idleTimeoutMember             int
-		idleTimeoutConnection         int
-		poolAlgorithm                 string
-		poolProtocol                  string
-		monitorProtocol               string
-		monitorHealthyThreshold       int
-		monitorUnhealthyThreshold     int
-		monitorInterval               int
-		monitorTimeout                int
-		defaultMonitorHTTPMethod      string
-		defaultMonitorHTTPPath        string
-		defaultMonitorHTTPSuccessCode int
-		defaultMonitorHttpVersion     string
-		defaultMonitorHttpDomainName  string
+		internal                  bool
+		lbID                      string
+		preferredIPFamily         lCoreV1.IPFamily // preferred (the first) IP family indicated in service's `spec.ipFamilies`
+		flavorID                  string
+		lbType                    lLoadBalancerV2.CreateOptsTypeOpt
+		projectID                 string
+		subnetID                  string
+		isOwner                   bool
+		allowedCIRDs              string
+		idleTimeoutClient         int
+		idleTimeoutMember         int
+		idleTimeoutConnection     int
+		poolAlgorithm             string
+		poolProtocol              string
+		monitorProtocol           string
+		monitorHealthyThreshold   int
+		monitorUnhealthyThreshold int
+		monitorInterval           int
+		monitorTimeout            int
+		monitorHTTPMethod         string
+		monitorHTTPPath           string
+		monitorHTTPSuccessCode    string
+		monitorHttpVersion        string
+		monitorHttpDomainName     string
 	}
 	listenerKey struct {
 		Protocol string
@@ -427,10 +427,14 @@ func (s *vLB) ensurePool(
 		Members:      poolMembers,
 		HealthMonitor: lPoolV2.HealthMonitor{
 			HealthCheckProtocol: lUtils.ParseMonitorProtocol(pServiceConfig.monitorProtocol),
+			HealthCheckPath:     pServiceConfig.monitorHTTPPath,
 			HealthyThreshold:    pServiceConfig.monitorHealthyThreshold,
 			UnhealthyThreshold:  pServiceConfig.monitorUnhealthyThreshold,
 			Timeout:             pServiceConfig.monitorTimeout,
 			Interval:            pServiceConfig.monitorInterval,
+			DomainName:          pServiceConfig.monitorHttpDomainName,
+			HttpVersion:         pServiceConfig.monitorHttpVersion,
+			SuccessCode:         pServiceConfig.monitorHTTPSuccessCode,
 		},
 	}))
 
@@ -650,7 +654,7 @@ func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*l
 	}
 
 	// Get the subnet ID from the cluster
-	pServiceConfig.subnetID = pCluster.ID
+	pServiceConfig.subnetID = pCluster.SubnetID
 
 	// Set option loadbalancer type is Layer 4 in the request option
 	pServiceConfig.lbType = lLoadBalancerV2.CreateOptsTypeOptLayer4
@@ -702,23 +706,23 @@ func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*l
 		pService, ServiceAnnotationMonitorInterval, s.vLbConfig.DefaultMonitorInterval)
 
 	// Set the monitor http method, default gets from config file if not set in the service annotation
-	pServiceConfig.defaultMonitorHTTPMethod = getStringFromServiceAnnotation(
+	pServiceConfig.monitorHTTPMethod = getStringFromServiceAnnotation(
 		pService, ServiceAnnotationMonitorHTTPMethod, s.vLbConfig.DefaultMonitorHttpMethod)
 
 	// Set the http monitor path, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.defaultMonitorHTTPPath = getStringFromServiceAnnotation(
+	pServiceConfig.monitorHTTPPath = getStringFromServiceAnnotation(
 		pService, ServiceAnnotationMonitorHTTPPath, s.vLbConfig.DefaultMonitorHttpPath)
 
 	// Set the http monitor success code, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.defaultMonitorHTTPSuccessCode = getIntFromServiceAnnotation(
+	pServiceConfig.monitorHTTPSuccessCode = getStringFromServiceAnnotation(
 		pService, ServiceAnnotationMonitorHTTPSuccessCode, s.vLbConfig.DefaultMonitorHttpSuccessCode)
 
 	// Set the http monitor version, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.defaultMonitorHttpVersion = getStringFromServiceAnnotation(
+	pServiceConfig.monitorHttpVersion = getStringFromServiceAnnotation(
 		pService, ServiceAnnotationMonitorHTTPVersion, s.vLbConfig.DefaultMonitorHttpVersion)
 
 	// Set the http monitor domain name, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.defaultMonitorHttpDomainName = getStringFromServiceAnnotation(
+	pServiceConfig.monitorHttpDomainName = getStringFromServiceAnnotation(
 		pService, ServiceAnnotationMonitorHTTPDomainName, s.vLbConfig.DefaultMonitorHttpDomainName)
 
 	return nil
