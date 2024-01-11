@@ -601,8 +601,6 @@ func (s *vLB) findDefaultSecgroup() (*lObjects.Secgroup, error) {
 	return nil, lErrors.NewErrNoDefaultSecgroup(s.getProjectID(), "")
 }
 
-// ******************************************** vLB PRIVATE METHODS SUPPORT ********************************************
-
 func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*lCoreV1.Node, // params
 	pServiceConfig *serviceConfig, pCluster *lClusterObjV2.Cluster) error { // returns
 
