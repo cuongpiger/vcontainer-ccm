@@ -852,13 +852,14 @@ func prepareMembers(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pServiceC
 	[]lPoolV2.Member, error) { // returns
 
 	var poolMembers []lPoolV2.Member
+	workerNodes := lUtils.ListWorkerNodes(pNodes, true)
 
-	for _, itemNode := range pNodes {
-		// Ignore master node
-		if _, ok := itemNode.GetObjectMeta().GetLabels()["node-role.kubernetes.io/master"]; ok {
-			continue
-		}
+	if len(workerNodes) < 1 {
+		klog.Errorf("no worker node available for this cluster")
+		return nil, lErrors.NewNoNodeAvailable()
+	}
 
+	for _, itemNode := range workerNodes {
 		_, err := getNodeAddressForLB(itemNode)
 		if err != nil {
 			if lErrors.IsErrNodeAddressNotFound(err) {
