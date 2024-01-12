@@ -21,11 +21,6 @@ const (
 	ServiceAnnotationMonitorUnhealthyThreshold = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-unhealthy-threshold"
 	ServiceAnnotationMonitorTimeout            = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-timeout"
 	ServiceAnnotationMonitorInterval           = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-interval"
-	ServiceAnnotationMonitorHTTPMethod         = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-method"
-	ServiceAnnotationMonitorHTTPPath           = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-path"
-	ServiceAnnotationMonitorHTTPSuccessCode    = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-success-code"
-	ServiceAnnotationMonitorHTTPVersion        = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-version"
-	ServiceAnnotationMonitorHTTPDomainName     = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-domain-name"
 	ServiceAnnotationLoadBalancerInternal      = "service.beta.kubernetes.io/vngcloud-internal-load-balancer"
 
 	serviceAnnotionOwnerClusterID = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/owner-cluster-id"

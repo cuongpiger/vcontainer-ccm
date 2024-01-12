@@ -88,11 +88,6 @@ type (
 		monitorUnhealthyThreshold int
 		monitorInterval           int
 		monitorTimeout            int
-		monitorHTTPMethod         string
-		monitorHTTPPath           string
-		monitorHTTPSuccessCode    string
-		monitorHttpVersion        string
-		monitorHttpDomainName     string
 	}
 	listenerKey struct {
 		Protocol string
@@ -414,14 +409,10 @@ func (s *vLB) ensurePool(
 		Members:      poolMembers,
 		HealthMonitor: lPoolV2.HealthMonitor{
 			HealthCheckProtocol: lUtils.ParseMonitorProtocol(pPort.Protocol),
-			HealthCheckPath:     pServiceConfig.monitorHTTPPath,
 			HealthyThreshold:    pServiceConfig.monitorHealthyThreshold,
 			UnhealthyThreshold:  pServiceConfig.monitorUnhealthyThreshold,
 			Timeout:             pServiceConfig.monitorTimeout,
 			Interval:            pServiceConfig.monitorInterval,
-			DomainName:          pServiceConfig.monitorHttpDomainName,
-			HttpVersion:         pServiceConfig.monitorHttpVersion,
-			SuccessCode:         pServiceConfig.monitorHTTPSuccessCode,
 		},
 	}))
 
@@ -683,26 +674,6 @@ func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*l
 	// Set the monitor interval, default is get from the cloud config file if not set in the service annotation
 	pServiceConfig.monitorInterval = getIntFromServiceAnnotation(
 		pService, ServiceAnnotationMonitorInterval, s.vLbConfig.DefaultMonitorInterval)
-
-	// Set the monitor http method, default gets from config file if not set in the service annotation
-	pServiceConfig.monitorHTTPMethod = getStringFromServiceAnnotation(
-		pService, ServiceAnnotationMonitorHTTPMethod, s.vLbConfig.DefaultMonitorHttpMethod)
-
-	// Set the http monitor path, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.monitorHTTPPath = getStringFromServiceAnnotation(
-		pService, ServiceAnnotationMonitorHTTPPath, s.vLbConfig.DefaultMonitorHttpPath)
-
-	// Set the http monitor success code, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.monitorHTTPSuccessCode = getStringFromServiceAnnotation(
-		pService, ServiceAnnotationMonitorHTTPSuccessCode, s.vLbConfig.DefaultMonitorHttpSuccessCode)
-
-	// Set the http monitor version, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.monitorHttpVersion = getStringFromServiceAnnotation(
-		pService, ServiceAnnotationMonitorHTTPVersion, s.vLbConfig.DefaultMonitorHttpVersion)
-
-	// Set the http monitor domain name, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.monitorHttpDomainName = getStringFromServiceAnnotation(
-		pService, ServiceAnnotationMonitorHTTPDomainName, s.vLbConfig.DefaultMonitorHttpDomainName)
 
 	return nil
 }
