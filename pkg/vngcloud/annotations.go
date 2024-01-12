@@ -22,8 +22,6 @@ const (
 	ServiceAnnotationMonitorTimeout            = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-timeout"
 	ServiceAnnotationMonitorInterval           = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-interval"
 	ServiceAnnotationLoadBalancerInternal      = "service.beta.kubernetes.io/vngcloud-internal-load-balancer"
-
-	serviceAnnotionOwnerClusterID = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/owner-cluster-id"
 )
 
 // getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
