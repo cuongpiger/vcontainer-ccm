@@ -364,7 +364,12 @@ func (s *vLB) ensurePool(
 	pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig) (*lObjects.Pool, error) {
 
 	// Get the pool name of the service
-	poolName := lUtils.GenListenerAndPoolName(pCluster.ID, pService, pPort)
+
+	var (
+		userPool *lObjects.Pool
+
+		poolName = lUtils.GenListenerAndPoolName(pCluster.ID, pService, pPort)
+	)
 
 	// Get all pools of this loadbalancer based on the load balancer uuid
 	pools, err := lPoolV2.ListPoolsBasedLoadBalancer(
@@ -377,6 +382,10 @@ func (s *vLB) ensurePool(
 
 	// Loop via pool
 	for _, itemPool := range pools {
+		if itemPool.Name == poolName {
+			userPool = itemPool
+		}
+
 		// If this pool is not valid
 		if !lUtils.IsPoolProtocolValid(itemPool, pPort, poolName) {
 			err = lPoolV2.Delete(s.vLbSC, lPoolV2.NewDeleteOpts(s.extraInfo.ProjectID, pLb.UUID, itemPool.UUID))
@@ -385,6 +394,7 @@ func (s *vLB) ensurePool(
 				return nil, err
 			}
 
+			userPool = nil
 			break
 		}
 	}
@@ -395,40 +405,61 @@ func (s *vLB) ensurePool(
 		return nil, err
 	}
 
-	poolMembers, err := prepareMembers(pNodes, pPort, pServiceConfig)
-	if err != nil {
-		klog.Errorf("failed to prepare members for pool %s: %v", pService.Name, err)
-		return nil, err
+	if userPool == nil {
+		poolMembers, err := prepareMembers(pNodes, pPort, pServiceConfig)
+		if err != nil {
+			klog.Errorf("failed to prepare members for pool %s: %v", pService.Name, err)
+			return nil, err
+		}
+
+		poolProtocol := lUtils.ParsePoolProtocol(pPort.Protocol)
+		userPool, err = lPoolV2.Create(s.vLbSC, lPoolV2.NewCreateOpts(s.extraInfo.ProjectID, pLb.UUID, &lPoolV2.CreateOpts{
+			Algorithm:    lUtils.ParsePoolAlgorithm(pServiceConfig.poolAlgorithm),
+			PoolName:     poolName,
+			PoolProtocol: poolProtocol,
+			Members:      poolMembers,
+			HealthMonitor: lPoolV2.HealthMonitor{
+				HealthCheckProtocol: lUtils.ParseMonitorProtocol(pPort.Protocol),
+				HealthyThreshold:    pServiceConfig.monitorHealthyThreshold,
+				UnhealthyThreshold:  pServiceConfig.monitorUnhealthyThreshold,
+				Timeout:             pServiceConfig.monitorTimeout,
+				Interval:            pServiceConfig.monitorInterval,
+			},
+		}))
+
+		if err != nil {
+			klog.Errorf("failed to create pool %s for service %s: %v", pService.Name, pService.Name, err)
+			return nil, err
+		}
+
+		klog.Infof("Created pool %s for service %s, waiting the loadbalancer update completely", pService.Name, pService.Name)
+	} else {
+		klog.Infof("Pool %s for service %s existed, check members", pService.Name, pService.Name)
+		poolChange := isMemberChange(userPool, pNodes)
+		if poolChange {
+			poolMembers, err := prepareMembers(pNodes, pPort, pServiceConfig)
+			if err != nil {
+				klog.Errorf("failed to prepare members for pool %s: %v", pService.Name, err)
+				return nil, err
+			}
+
+			if err = lPoolV2.UpdatePoolMembers(s.vLbSC, lPoolV2.NewUpdatePoolMembersOpts(
+				s.extraInfo.ProjectID, pLb.UUID, userPool.UUID, &lPoolV2.UpdatePoolMembersOpts{
+					Members: poolMembers,
+				})); err != nil {
+				klog.Errorf("failed to update pool %s for service %s: %v", pService.Name, pService.Name, err)
+				return nil, err
+			}
+		}
 	}
 
-	poolProtocol := lUtils.ParsePoolProtocol(pPort.Protocol)
-	newPool, err := lPoolV2.Create(s.vLbSC, lPoolV2.NewCreateOpts(s.extraInfo.ProjectID, pLb.UUID, &lPoolV2.CreateOpts{
-		Algorithm:    lUtils.ParsePoolAlgorithm(pServiceConfig.poolAlgorithm),
-		PoolName:     poolName,
-		PoolProtocol: poolProtocol,
-		Members:      poolMembers,
-		HealthMonitor: lPoolV2.HealthMonitor{
-			HealthCheckProtocol: lUtils.ParseMonitorProtocol(pPort.Protocol),
-			HealthyThreshold:    pServiceConfig.monitorHealthyThreshold,
-			UnhealthyThreshold:  pServiceConfig.monitorUnhealthyThreshold,
-			Timeout:             pServiceConfig.monitorTimeout,
-			Interval:            pServiceConfig.monitorInterval,
-		},
-	}))
-
-	if err != nil {
-		klog.Errorf("failed to create pool %s for service %s: %v", pService.Name, pService.Name, err)
-		return nil, err
-	}
-
-	klog.Infof("Created pool %s for service %s, waiting the loadbalancer update completely", pService.Name, pService.Name)
 	_, err = s.waitLoadBalancerReady(pLb.UUID)
 	if err != nil {
 		klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
 		return nil, err
 	}
 
-	return newPool, nil
+	return userPool, nil
 }
 
 func (s *vLB) ensureListener(
@@ -832,9 +863,29 @@ func prepareMembers(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pServiceC
 				Port:        int(pPort.NodePort),
 				Weight:      lConsts.DEFAULT_MEMBER_WEIGHT,
 				MonitorPort: int(pPort.NodePort),
+				Name:        itemNode.Name,
 			})
 		}
 	}
 
 	return poolMembers, nil
+}
+
+func isMemberChange(pPool *lObjects.Pool, pNodes []*lCoreV1.Node) bool {
+	if len(pPool.Members) != len(pNodes) {
+		return true
+	}
+
+	memberMapping := make(map[string]bool)
+	for _, member := range pPool.Members {
+		memberMapping[member.Name] = true
+	}
+
+	for _, itemNode := range pNodes {
+		if _, isPresent := memberMapping[itemNode.Name]; !isPresent {
+			return true
+		}
+	}
+
+	return false
 }
