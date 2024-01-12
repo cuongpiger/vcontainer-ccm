@@ -85,7 +85,6 @@ type (
 		idleTimeoutMember         int
 		idleTimeoutConnection     int
 		poolAlgorithm             string
-		monitorProtocol           string
 		monitorHealthyThreshold   int
 		monitorUnhealthyThreshold int
 		monitorInterval           int
@@ -415,7 +414,7 @@ func (s *vLB) ensurePool(
 		PoolProtocol: poolProtocol,
 		Members:      poolMembers,
 		HealthMonitor: lPoolV2.HealthMonitor{
-			HealthCheckProtocol: lUtils.ParseMonitorProtocol(pServiceConfig.monitorProtocol),
+			HealthCheckProtocol: lUtils.ParseMonitorProtocol(pPort.Protocol),
 			HealthCheckPath:     pServiceConfig.monitorHTTPPath,
 			HealthyThreshold:    pServiceConfig.monitorHealthyThreshold,
 			UnhealthyThreshold:  pServiceConfig.monitorUnhealthyThreshold,
@@ -669,10 +668,6 @@ func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*l
 	// Set the pool algorithm, default is get from the cloud config file if not set in the service annotation
 	pServiceConfig.poolAlgorithm = getStringFromServiceAnnotation(
 		pService, ServiceAnnotationPoolAlgorithm, s.vLbConfig.DefaultPoolAlgorithm)
-
-	// Set the pool healthcheck protocol
-	pServiceConfig.monitorProtocol = getStringFromServiceAnnotation(
-		pService, ServiceAnnotationMonitorProtocol, s.vLbConfig.DefaultMonitorProtocol)
 
 	// Set the pool healthcheck options
 	pServiceConfig.monitorHealthyThreshold = getIntFromServiceAnnotation(
