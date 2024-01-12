@@ -38,7 +38,6 @@ type (
 		DefaultIdleTimeoutMember         int    `gcfg:"default-idle-timeout-member"`
 		DefaultIdleTimeoutConnection     int    `gcfg:"default-idle-timeout-connection"`
 		DefaultPoolAlgorithm             string `gcfg:"default-pool-algorithm"`
-		DefaultPoolProtocol              string `gcfg:"default-pool-protocol"`
 		DefaultMonitorProtocol           string `gcfg:"default-monitor-protocol"`
 		DefaultMonitorHealthyThreshold   int    `gcfg:"default-monitor-healthy-threshold"`
 		DefaultMonitorUnhealthyThreshold int    `gcfg:"default-monitor-unhealthy-threshold"`
@@ -86,7 +85,6 @@ type (
 		idleTimeoutMember         int
 		idleTimeoutConnection     int
 		poolAlgorithm             string
-		poolProtocol              string
 		monitorProtocol           string
 		monitorHealthyThreshold   int
 		monitorUnhealthyThreshold int
@@ -410,7 +408,7 @@ func (s *vLB) ensurePool(
 		return nil, err
 	}
 
-	poolProtocol := lUtils.ParsePoolProtocol(pServiceConfig.poolProtocol)
+	poolProtocol := lUtils.ParsePoolProtocol(pPort.Protocol)
 	newPool, err := lPoolV2.Create(s.vLbSC, lPoolV2.NewCreateOpts(s.extraInfo.ProjectID, pLb.UUID, &lPoolV2.CreateOpts{
 		Algorithm:    lUtils.ParsePoolAlgorithm(pServiceConfig.poolAlgorithm),
 		PoolName:     poolName,
@@ -671,10 +669,6 @@ func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*l
 	// Set the pool algorithm, default is get from the cloud config file if not set in the service annotation
 	pServiceConfig.poolAlgorithm = getStringFromServiceAnnotation(
 		pService, ServiceAnnotationPoolAlgorithm, s.vLbConfig.DefaultPoolAlgorithm)
-
-	// Set the pool protocol, default is get from the cloud config file if not set in the service annotation
-	pServiceConfig.poolProtocol = getStringFromServiceAnnotation(
-		pService, ServiceAnnotationPoolProtocol, s.vLbConfig.DefaultPoolProtocol)
 
 	// Set the pool healthcheck protocol
 	pServiceConfig.monitorProtocol = getStringFromServiceAnnotation(

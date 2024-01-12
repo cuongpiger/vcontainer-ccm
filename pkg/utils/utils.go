@@ -168,11 +168,15 @@ func ParsePoolAlgorithm(pOpt string) lPoolV2.CreateOptsAlgorithmOpt {
 	return lPoolV2.CreateOptsAlgorithmOptRoundRobin
 }
 
-func ParsePoolProtocol(pOpt string) lPoolV2.CreateOptsProtocolOpt {
-	opt := lStr.TrimSpace(lStr.ToUpper(pOpt))
+func ParsePoolProtocol(pPoolProtocol lCoreV1.Protocol) lPoolV2.CreateOptsProtocolOpt {
+	opt := lStr.TrimSpace(lStr.ToUpper(string(pPoolProtocol)))
 	switch opt {
 	case string(lPoolV2.CreateOptsProtocolOptProxy):
 		return lPoolV2.CreateOptsProtocolOptProxy
+	case string(lPoolV2.CreateOptsProtocolOptHTTP):
+		return lPoolV2.CreateOptsProtocolOptHTTP
+	case string(lPoolV2.CreateOptsProtocolOptUDP):
+		return lPoolV2.CreateOptsProtocolOptUDP
 	}
 	return lPoolV2.CreateOptsProtocolOptTCP
 }
