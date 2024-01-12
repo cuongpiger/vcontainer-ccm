@@ -184,7 +184,7 @@ func ParsePoolProtocol(pPoolProtocol lCoreV1.Protocol) lPoolV2.CreateOptsProtoco
 func ParseMonitorProtocol(pPoolProtocol lCoreV1.Protocol) lPoolV2.CreateOptsHealthCheckProtocolOpt {
 	opt := lStr.TrimSpace(lStr.ToUpper(string(pPoolProtocol)))
 	switch opt {
-	case string(lPoolV2.CreateOptsProtocolOptTCP):
+	case string(lPoolV2.CreateOptsProtocolOptUDP):
 		return lPoolV2.CreateOptsHealthCheckProtocolOptPINGUDP
 	}
 	return lPoolV2.CreateOptsHealthCheckProtocolOptTCP
