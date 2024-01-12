@@ -53,7 +53,7 @@ func init() {
 
 	// Register VNG-CLOUD cloud provider
 	lcloudProvider.RegisterCloudProvider(
-		ProviderName,
+		PROVIDER_NAME,
 		func(cfg io.Reader) (lcloudProvider.Interface, error) {
 			config, err := readConfig(cfg)
 			if err != nil {

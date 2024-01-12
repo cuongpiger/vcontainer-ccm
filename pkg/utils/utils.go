@@ -158,10 +158,10 @@ func CheckOwner(pCluster *lClusterObjV2.Cluster, pLb *lObjects.LoadBalancer, pSe
 }
 
 func ParsePoolAlgorithm(pOpt string) lPoolV2.CreateOptsAlgorithmOpt {
-	opt := lStr.Replace(lStr.TrimSpace(lStr.ToUpper(pOpt)), "-", "_", -1)
+	opt := lStr.ReplaceAll(lStr.TrimSpace(lStr.ToUpper(pOpt)), "-", "_")
 	switch opt {
 	case string(lPoolV2.CreateOptsAlgorithmOptSourceIP):
-		return lPoolV2.CreateOptsAlgorithmOptRoundRobin
+		return lPoolV2.CreateOptsAlgorithmOptSourceIP
 	case string(lPoolV2.CreateOptsAlgorithmOptLeastConn):
 		return lPoolV2.CreateOptsAlgorithmOptLeastConn
 	}

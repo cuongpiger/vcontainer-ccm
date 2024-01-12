@@ -41,7 +41,7 @@ func (s *VContainer) Initialize(clientBuilder lcloudProvider.ControllerClientBui
 	s.eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: s.kubeClient.CoreV1().Events("")})
 	s.eventRecorder = s.eventBroadcaster.NewRecorder(
 		scheme.Scheme,
-		lK8sCore.EventSource{Component: fmt.Sprintf("cloud-provider-%s", ProviderName)})
+		lK8sCore.EventSource{Component: fmt.Sprintf("cloud-provider-%s", PROVIDER_NAME)})
 }
 
 func (s *VContainer) LoadBalancer() (lcloudProvider.LoadBalancer, bool) {
@@ -87,7 +87,7 @@ func (s *VContainer) Clusters() (lcloudProvider.Clusters, bool) {
 }
 
 func (s *VContainer) ProviderName() string {
-	return ProviderName
+	return PROVIDER_NAME
 }
 
 func (s *VContainer) HasClusterID() bool {
