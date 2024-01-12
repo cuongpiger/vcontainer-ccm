@@ -38,7 +38,6 @@ type (
 		DefaultIdleTimeoutMember         int    `gcfg:"default-idle-timeout-member"`
 		DefaultIdleTimeoutConnection     int    `gcfg:"default-idle-timeout-connection"`
 		DefaultPoolAlgorithm             string `gcfg:"default-pool-algorithm"`
-		DefaultMonitorProtocol           string `gcfg:"default-monitor-protocol"`
 		DefaultMonitorHealthyThreshold   int    `gcfg:"default-monitor-healthy-threshold"`
 		DefaultMonitorUnhealthyThreshold int    `gcfg:"default-monitor-unhealthy-threshold"`
 		DefaultMonitorTimeout            int    `gcfg:"default-monitor-timeout"`

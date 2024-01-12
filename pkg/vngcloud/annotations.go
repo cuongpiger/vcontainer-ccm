@@ -17,7 +17,6 @@ const (
 	ServiceAnnotationIdleTimeoutConnection     = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/idle-timeout-connection" // both annotation and cloud-config
 	ServiceAnnotationListenerAllowedCIDRs      = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/listener-allowed-cidrs"  // both annotation and cloud-config
 	ServiceAnnotationPoolAlgorithm             = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/pool-algorithm"          // both annotation and cloud-config
-	ServiceAnnotationMonitorProtocol           = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-protocol"        // both annotation and cloud-config
 	ServiceAnnotationHealthyThreshold          = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-healthy-threshold"
 	ServiceAnnotationMonitorUnhealthyThreshold = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-unhealthy-threshold"
 	ServiceAnnotationMonitorTimeout            = lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-timeout"
