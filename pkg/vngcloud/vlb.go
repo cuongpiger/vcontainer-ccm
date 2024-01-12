@@ -120,7 +120,7 @@ func (s *vLB) GetLoadBalancerName(_ lCtx.Context, pClusterName string, pService 
 
 	if len(lbName) > 0 {
 		lbName = fmt.Sprintf("%s-%s", lbPrefixName, lbName)
-		return lbName[:lUtils.MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)]
+		return lStr.ToLower(lbName[:lUtils.MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)])
 	} else {
 		return genName
 	}
@@ -157,8 +157,7 @@ func (s *vLB) ensureLoadBalancer(
 		userLb               *lObjects.LoadBalancer   // hold the loadbalancer that user want to reuse or create
 		lsLbs                []*lObjects.LoadBalancer // hold the list of loadbalancer existed in the project of this cluster
 		lbListeners          []*lObjects.Listener     // hold the list of listeners of the loadbalancer attach to this cluster
-		svcAnnotations       map[string]string
-		createNewLb, isOwner bool // check the loadbalancer is created and this cluster is the owner
+		createNewLb, isOwner bool                     // check the loadbalancer is created and this cluster is the owner
 
 		svcConf            = new(serviceConfig)                                // the lb configurations CAN be applied to create or update
 		curListenerMapping = make(map[listenerKey]*lObjects.Listener)          // this use to check conflict port and protocol
@@ -198,7 +197,6 @@ func (s *vLB) ensureLoadBalancer(
 		}
 
 		createNewLb = false
-		svcAnnotations[ServiceAnnotationLoadBalancerID] = svcConf.lbID
 	} else {
 		// User want you to create a new loadbalancer for this service
 		klog.V(5).Infof("did not specify load balancer ID, maybe creating a new one")
@@ -222,9 +220,6 @@ func (s *vLB) ensureLoadBalancer(
 			klog.Errorf("failed to create load balancer for service %s/%s: %v", pService.Namespace, pService.Name, err)
 			return nil, err
 		}
-
-		svcAnnotations[serviceAnnotionOwnerClusterID] = userCluster.ID
-		svcAnnotations[ServiceAnnotationLoadBalancerID] = userLb.UUID
 	}
 
 	// Check ports are conflict or not
@@ -292,9 +287,6 @@ func (s *vLB) ensureLoadBalancer(
 			return nil, err
 		}
 	}
-
-	// Update the annatation for the K8s service
-	s.updateK8sServiceAnnotations(pService, svcAnnotations)
 
 	klog.V(5).Infof("processing load balancer status")
 	lbStatus := s.createLoadBalancerStatus(userLb.Address)
@@ -381,7 +373,7 @@ func (s *vLB) ensurePool(
 	pNodes []*lCoreV1.Node, pServiceConfig *serviceConfig) (*lObjects.Pool, error) {
 
 	// Get the pool name of the service
-	poolName := lUtils.GenListenerAndPoolName(pCluster.ID, pService)
+	poolName := lUtils.GenListenerAndPoolName(pCluster.ID, pService, pPort)
 
 	// Get all pools of this loadbalancer based on the load balancer uuid
 	pools, err := lPoolV2.ListPoolsBasedLoadBalancer(
@@ -464,7 +456,7 @@ func (s *vLB) ensureListener(
 		&lListenerV2.CreateOpts{
 			AllowedCidrs:         pServiceConfig.allowedCIRDs,
 			DefaultPoolId:        pPoolID,
-			ListenerName:         lUtils.GenListenerAndPoolName(pCluster.ID, pService),
+			ListenerName:         lUtils.GenListenerAndPoolName(pCluster.ID, pService, pPort),
 			ListenerProtocol:     lUtils.ParseListenerProtocol(pPort),
 			ListenerProtocolPort: int(pPort.Port),
 			TimeoutClient:        pServiceConfig.idleTimeoutClient,
@@ -750,7 +742,7 @@ func (s *vLB) checkListeners(
 
 	for _, svcPort := range pService.Spec.Ports {
 		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
-		listenerName := lUtils.GenListenerAndPoolName(pCluster.ID, pService)
+		listenerName := lUtils.GenListenerAndPoolName(pCluster.ID, pService, svcPort)
 
 		if lbListener, isPresent := pListenerMapping[key]; isPresent {
 			if lbListener.Name != listenerName {
@@ -792,16 +784,6 @@ func (s *vLB) checkListeners(
 
 	klog.Infof("the port and protocol is not conflict")
 	return nil
-}
-
-func (s *vLB) updateK8sServiceAnnotations(pService *lCoreV1.Service, pNewAnnotations map[string]string) {
-	if pService.ObjectMeta.Annotations == nil {
-		pService.ObjectMeta.Annotations = map[string]string{}
-	}
-
-	for key, value := range pNewAnnotations {
-		pService.ObjectMeta.Annotations[key] = value
-	}
 }
 
 // ********************************************* DIRECTLY SUPPORT FUNCTIONS ********************************************

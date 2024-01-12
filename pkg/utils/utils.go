@@ -65,13 +65,15 @@ func IsPoolProtocolValid(pPool *lObjects.Pool, pPort lCoreV1.ServicePort, pPoolN
 	return true
 }
 
-func GenListenerAndPoolName(pClusterID string, pService *lCoreV1.Service) string {
+func GenListenerAndPoolName(pClusterID string, pService *lCoreV1.Service, pPort lCoreV1.ServicePort) string {
+	portSuffix := fmt.Sprintf("-%s-%d", pPort.Protocol, pPort.Port)
 	serviceName := GenLoadBalancerName(pClusterID, pService)
-	if lConsts.DEFAULT_PORTAL_NAME_LENGTH-len(serviceName) >= 0 {
-		return serviceName
+	if lConsts.DEFAULT_PORTAL_NAME_LENGTH-len(serviceName)-len(portSuffix) >= 0 {
+		return lStr.ToLower(serviceName + portSuffix)
 	}
 
-	return serviceName[:lConsts.DEFAULT_PORTAL_NAME_LENGTH]
+	delta := lConsts.DEFAULT_PORTAL_NAME_LENGTH - len(portSuffix)
+	return lStr.ToLower(serviceName[:delta] + portSuffix)
 }
 
 /*
@@ -89,7 +91,7 @@ func GenLoadBalancerName(pClusterID string, pService *lCoreV1.Service) string {
 		"%s-%s_%s",
 		GenLoadBalancerPrefixName(pClusterID),
 		pService.Namespace, pService.Name)
-	return lbName[:MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)]
+	return lStr.ToLower(lbName[:MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)])
 }
 
 func GenLoadBalancerPrefixName(pClusterID string) string {
