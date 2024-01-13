@@ -1098,7 +1098,8 @@ func prepareMembers(pNodes []*lCoreV1.Node, pPort lCoreV1.ServicePort, pServiceC
 }
 
 func isMemberChange(pPool *lObjects.Pool, pNodes []*lCoreV1.Node) bool {
-	if len(pPool.Members) != len(pNodes) {
+	healthyWorkerNodes := lUtils.ListWorkerNodes(pNodes, true)
+	if len(pPool.Members) != len(healthyWorkerNodes) {
 		return true
 	}
 
@@ -1107,7 +1108,7 @@ func isMemberChange(pPool *lObjects.Pool, pNodes []*lCoreV1.Node) bool {
 		memberMapping[member.Name] = true
 	}
 
-	for _, itemNode := range lUtils.ListWorkerNodes(pNodes, true) {
+	for _, itemNode := range healthyWorkerNodes {
 		if _, isPresent := memberMapping[itemNode.Name]; !isPresent {
 			return true
 		}
