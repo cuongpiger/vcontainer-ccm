@@ -446,6 +446,12 @@ func (s *vLB) ensurePool(
 				s.extraInfo.ProjectID, pLb.UUID, userPool.UUID, &lPoolV2.UpdatePoolMembersOpts{
 					Members: poolMembers,
 				})); err != nil {
+
+				if lPoolV2.IsErrPoolMemberUnchanged(err) {
+					klog.Infof("pool %s for service %s has no change", userPool.Name, pService.Name)
+					return userPool, nil
+				}
+
 				klog.Errorf("failed to update pool %s for service %s: %v", pService.Name, pService.Name, err)
 				return nil, err
 			}
