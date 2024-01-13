@@ -12,9 +12,8 @@ const (
 )
 
 const (
+	PROVIDER_NAME              = "vngcloud"
 	ACTIVE_LOADBALANCER_STATUS = "ACTIVE"
-
-	PROVIDER_NAME = "vngcloud"
 )
 
 const (

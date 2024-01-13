@@ -203,8 +203,8 @@ github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcU
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 h1:6fotK7otjonDflCTK0BCfls4SPy3NcCVb5dqqmbRknE=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75/go.mod h1:KO6IkyS8Y3j8OdNO85qEYBsRPuteD+YciPomcXdrMnk=
-github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240112075301-5578b5881354 h1:riXoOt7gG6NxRL3k5v8pUYOWgpyZtaScyOE46IRhK4Q=
-github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240112075301-5578b5881354/go.mod h1:RWXuT91DXam0KylY1+gP3/goK9q99+bCcxU/OQxWC84=
+github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240113053042-33c85418f734 h1:XBkv5HEnAm9TizQxYDvPvyti8z0HVG1kXQ2WyP6Cm3Y=
+github.com/vngcloud/vcontainer-sdk v0.1.2-0.20240113053042-33c85418f734/go.mod h1:RWXuT91DXam0KylY1+gP3/goK9q99+bCcxU/OQxWC84=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5Qo6v2eYzo7kUS51QINcR5jNpbZS8=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

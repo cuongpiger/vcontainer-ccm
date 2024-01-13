@@ -201,6 +201,8 @@ func (s *vLB) ensureLoadBalancer(
 		return nil, err
 	}
 
+	// Find the loadbalancer from the list of loadbalancer that we got from the project,
+	// make sure they are on the same subnet
 	userLb = s.findLoadBalancer(lbName, lsLbs, userCluster)
 	isOwner = lUtils.CheckOwner(userCluster, userLb, pService)
 	createNewLb = userLb == nil
