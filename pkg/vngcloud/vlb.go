@@ -765,7 +765,8 @@ func (s *vLB) checkListeners(
 			}
 		} else if !isPresent {
 			for key, _ := range pListenerMapping {
-				if key.Port == int(svcPort.Port) || key.Protocol == string(svcPort.Protocol) {
+				// Conflict when the port is the same but the protocol is different
+				if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
 					klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
 					return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
 				}
