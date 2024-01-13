@@ -116,9 +116,16 @@ func (s *vLB) EnsureLoadBalancer(
 	return status, mc.ObserveReconcile(err)
 }
 
+// UpdateLoadBalancer updates hosts under the specified load balancer. This will be executed when user add or remove nodes
+// from the cluster
 func (s *vLB) UpdateLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) error {
-	klog.Infof("UpdateLoadBalancer: update load balancer for service %s/%s, the nodes are: %v", pService.Namespace, pService.Name, pNodes)
-	return nil
+	klog.Infof("UpdateLoadBalancer: update load balancer for service %s/%s, the nodes are: %v",
+		pService.Namespace, pService.Name, pNodes)
+
+	mc := lMetrics.NewMetricContext("loadbalancer", "update-loadbalancer")
+	klog.InfoS("UpdateLoadBalancer", "cluster", pClusterID, "service", klog.KObj(pService))
+	err := s.ensureUpdateLoadBalancer(pCtx, pClusterID, pService, pNodes)
+	return mc.ObserveReconcile(err)
 }
 
 func (s *vLB) EnsureLoadBalancerDeleted(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service) error {
@@ -509,27 +516,52 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx lCtx.Context, pClusterID string, pSe
 		return err
 	}
 
+	if userLbs == nil || len(userLbs) < 1 {
+		klog.Infof("no load balancer found for cluster %s", pClusterID)
+		return nil
+	}
+
 	// Get the loadbalancer by subnetID and loadbalancer name
 	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
-	for _, itemLb := range userLbs {
-		if userLb := s.findLoadBalancer(lbName, userLbs, userCluster); userLb != nil {
-			if !s.canDeleteThisLoadBalancer(userLb, userCluster, pService) {
-				klog.Warningf(
-					"the loadbalancer %s is not owned by cluster %s or is used by other services", userLb.UUID, pClusterID)
-				return nil
-			}
+	if userLb := s.findLoadBalancer(lbName, userLbs, userCluster); userLb != nil {
+		canDelete := s.canDeleteThisLoadBalancer(userLb, userCluster, pService)
+		if !canDelete {
+			klog.Infof(
+				"the loadbalancer %s is not owned by cluster %s or is used by other services, will delete these cluster listeners", userLb.UUID, pClusterID)
 
-			// Delete this loadbalancer
-			klog.V(5).Infof("deleting load balancer [UUID:%s]", itemLb.UUID)
-			err := lLoadBalancerV2.Delete(s.vLbSC, lLoadBalancerV2.NewDeleteOpts(s.getProjectID(), itemLb.UUID))
+			// Get all listeners of this loadbalancer
+			lbListeners, err := lListenerV2.GetBasedLoadBalancer(s.vLbSC, lListenerV2.NewGetBasedLoadBalancerOpts(s.getProjectID(), userLb.UUID))
 			if err != nil {
-				klog.Errorf("failed to delete load balancer [UUID:%s]: %v", itemLb.UUID, err)
+				klog.Errorf("can not list listeners of loadbalancer %s to delete: %v", userLb.UUID, err)
 				return err
 			}
 
-			klog.V(5).Infof("deleted load balancer [UUID:%s] successfully", itemLb.UUID)
-			break
+			// Check if this loadbalancer has no listeners
+			if lbListeners == nil || len(lbListeners) < 1 {
+				klog.Infof("the loadbalancer %s has no listeners", userLb.UUID)
+				return nil
+			}
+
+			// Delete all listeners of this loadbalancer
+			for _, itemListener := range lbListeners {
+				if err := s.deleteListenersAndPools(userCluster, itemListener, userLb, pService); err != nil {
+					klog.Errorf("failed to delete listener %s for loadbalancer %s: %v", itemListener.ID, userLb.UUID, err)
+					return err
+				}
+			}
+
+			return nil
 		}
+
+		// Delete this loadbalancer
+		klog.V(5).Infof("deleting load balancer [UUID:%s]", userLb.UUID)
+		err := lLoadBalancerV2.Delete(s.vLbSC, lLoadBalancerV2.NewDeleteOpts(s.getProjectID(), userLb.UUID))
+		if err != nil {
+			klog.Errorf("failed to delete load balancer [UUID:%s]: %v", userLb.UUID, err)
+			return err
+		}
+
+		klog.V(5).Infof("deleted load balancer [UUID:%s] successfully", userLb.UUID)
 	}
 
 	// The loadbalancer has been deleted completely
@@ -732,43 +764,55 @@ func (s *vLB) checkListeners(
 		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
 		listenerName := lUtils.GenListenerAndPoolName(pCluster.ID, pService, svcPort)
 
-		if lbListener, isPresent := pListenerMapping[key]; isPresent && lbListener.Name != listenerName {
-			klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
-			return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
-		} else if isPresent && lbListener.Name == listenerName {
-			// If the listener is already existed, but the port and protocol is not correct
-			klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
-			poolID := lbListener.DefaultPoolUUID
-
-			if err := lPoolV2.Delete(
-				s.vLbSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, poolID)); err != nil {
-				klog.Errorf("failed to delete pool %s for load balancer %s: %v", poolID, pLb.UUID, err)
-				return err
+		if lbListener, isPresent := pListenerMapping[key]; isPresent {
+			if lbListener.Name != listenerName {
+				klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
+				return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
 			}
 
-			klog.V(5).Infof("waiting to delete pool %s for load balancer %s complete", poolID, pLb.UUID)
-			if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
-				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
-				return err
-			}
+			// If the listener is already existed, but the port and protocol is correct
+			klog.Infof(
+				"the port %d and protocol %s is existed, there is no any conflict", svcPort.Port, svcPort.Protocol)
+		} else {
+			if lbListener.Name == listenerName {
+				// If the listener is already existed, but the port and protocol is not correct
+				klog.Errorf(
+					"the port %d and protocol %s is conflict, checking to delete old resources", svcPort.Port, svcPort.Protocol)
+				poolID := lbListener.DefaultPoolUUID
 
-			if err := lListenerV2.Delete(
-				s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, lbListener.ID)); err != nil {
-				klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLb.UUID, err)
-				return err
-			}
+				// MUST delete the listener first
+				if err := lListenerV2.Delete(
+					s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, lbListener.ID)); err != nil {
+					klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLb.UUID, err)
+					return err
+				}
 
-			klog.V(5).Infof("waiting to delete listener %s for load balancer %s complete", lbListener.ID, pLb.UUID)
-			if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
-				klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
-				return err
-			}
-		} else if !isPresent {
-			for key, _ := range pListenerMapping {
-				// Conflict when the port is the same but the protocol is different
-				if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
-					klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
-					return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
+				klog.V(5).Infof("waiting to delete listener %s for load balancer %s complete", lbListener.ID, pLb.UUID)
+				if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+					klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+					return err
+				}
+
+				// ... and then delete the pool later
+				if err := lPoolV2.Delete(
+					s.vLbSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, poolID)); err != nil {
+					klog.Errorf("failed to delete pool %s for load balancer %s: %v", poolID, pLb.UUID, err)
+					return err
+				}
+
+				klog.V(5).Infof("waiting to delete pool %s for load balancer %s complete", poolID, pLb.UUID)
+				if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+					klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+					return err
+				}
+			} else {
+				klog.V(5).Infof("the port %d and protocol %s in the manifest conflict with other services", svcPort.Port, svcPort.Protocol)
+				for key, _ := range pListenerMapping {
+					// Conflict when the port is the same but the protocol is different
+					if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
+						klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
+						return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
+					}
 				}
 			}
 		}
@@ -823,6 +867,133 @@ func (s *vLB) canDeleteThisLoadBalancer(pLb *lObjects.LoadBalancer, pCluster *lO
 	}
 
 	return true
+}
+
+func (s *vLB) deleteListenersAndPools(
+	pCluster *lObjects.Cluster, pListener *lObjects.Listener, pLb *lObjects.LoadBalancer, pService *lCoreV1.Service) error {
+	if pListener == nil {
+		return nil
+	}
+
+	for _, itemPort := range pService.Spec.Ports {
+		listenerName := lUtils.GenListenerAndPoolName(pCluster.ID, pService, itemPort)
+		poolID := pListener.DefaultPoolUUID
+		if pListener.Name == listenerName {
+			if err := lListenerV2.Delete(
+				s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, pListener.ID)); err != nil {
+				klog.Errorf("failed to delete listener %s for load balancer %s: %v", pListener.ID, pLb.UUID, err)
+				return err
+			}
+		}
+
+		if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+			klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+			return err
+		}
+
+		if err := lPoolV2.Delete(s.vLbSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, poolID)); err != nil {
+			klog.Errorf("failed to delete pool %s for load balancer %s: %v", poolID, pLb.UUID, err)
+			return err
+		}
+
+		if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+			klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+			return err
+		}
+
+		klog.Infof("deleted listener %s and pool %s for load balancer %s successfully", pListener.ID, poolID, pLb.UUID)
+		break
+	}
+
+	return nil
+}
+
+func (s *vLB) ensureUpdateLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) error {
+	// Get the cluster info from the cluster ID that user provided from the K8s secret
+	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
+	if err != nil || userCluster == nil {
+		klog.Errorf("cluster %s NOT found, please check the secret resource in the Helm template", pClusterID)
+		return err
+	}
+
+	// Get this loadbalancer name
+	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
+	lstLbs, err := lLoadBalancerV2.List(s.vLbSC, lLoadBalancerV2.NewListOpts(s.getProjectID()))
+	if err != nil {
+		klog.Errorf(
+			"failed to list load balancers for cluster %s in the subnet %s: %v", pClusterID, userCluster.SubnetID, err)
+		return err
+	}
+
+	if lstLbs == nil || len(lstLbs) < 1 {
+		klog.Infof("no load balancer found for cluster %s", pClusterID)
+		return nil
+	}
+
+	userLb := s.findLoadBalancer(lbName, lstLbs, userCluster)
+	if userLb == nil {
+		klog.Infof("Load balancer %s is not existed", lbName)
+		return nil
+	}
+
+	// Get all pools of this loadbalancer based on the load balancer uuid
+	lstPools, err := lPoolV2.ListPoolsBasedLoadBalancer(
+		s.vLbSC, lPoolV2.NewListPoolsBasedLoadBalancerOpts(s.getProjectID(), userLb.UUID))
+	if err != nil {
+		klog.Errorf("failed to list pools for load balancer %s when updating the Kubernetes services: %v", userLb.UUID, err)
+		return err
+	}
+
+	for _, itemPort := range pService.Spec.Ports {
+		// Loop via pool
+		poolName := lUtils.GenListenerAndPoolName(userCluster.ID, pService, itemPort)
+		if err := s.updatePoolMembers(poolName, userLb, lstPools, pNodes, itemPort, pService); err != nil {
+			klog.Errorf(
+				"failed to update pool %s for service %s in ensure update loadbalancer action: %v", poolName, pService.Name, err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *vLB) updatePoolMembers(
+	pPoolName string, pLb *lObjects.LoadBalancer, pPools []*lObjects.Pool, pNodes []*lCoreV1.Node, // params
+	pPort lCoreV1.ServicePort, pService *lCoreV1.Service) error { // params + returns
+
+	svcConfig := new(serviceConfig)
+	svcConfig.preferredIPFamily = lCoreV1.IPv4Protocol
+
+	if len(pService.Spec.IPFamilies) > 0 {
+		svcConfig.preferredIPFamily = pService.Spec.IPFamilies[0]
+	}
+
+	for _, itemPool := range pPools {
+		if itemPool.Name == pPoolName && isMemberChange(itemPool, pNodes) {
+			poolMembers, err := prepareMembers(pNodes, pPort, svcConfig)
+			if err != nil {
+				klog.Errorf("failed to prepare members for pool %s: %v", pService.Name, err)
+				return err
+			}
+
+			if err = lPoolV2.UpdatePoolMembers(s.vLbSC, lPoolV2.NewUpdatePoolMembersOpts(
+				s.extraInfo.ProjectID, pLb.UUID, itemPool.UUID, &lPoolV2.UpdatePoolMembersOpts{
+					Members: poolMembers,
+				})); err != nil {
+				klog.Errorf("failed to update pool %s for service %s: %v", pService.Name, pService.Name, err)
+				return err
+			} else {
+				klog.Infof(
+					"updating pool %s for service %s, waiting loadbalancer complete", pService.Name, pService.Name)
+				if _, err = s.waitLoadBalancerReady(pLb.UUID); err != nil {
+					klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // ********************************************* DIRECTLY SUPPORT FUNCTIONS ********************************************
@@ -930,7 +1101,7 @@ func isMemberChange(pPool *lObjects.Pool, pNodes []*lCoreV1.Node) bool {
 		memberMapping[member.Name] = true
 	}
 
-	for _, itemNode := range pNodes {
+	for _, itemNode := range lUtils.ListWorkerNodes(pNodes, true) {
 		if _, isPresent := memberMapping[itemNode.Name]; !isPresent {
 			return true
 		}

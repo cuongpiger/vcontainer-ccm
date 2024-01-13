@@ -75,7 +75,7 @@ func IsErrConflictService(pErr error) bool {
 }
 
 func (s *ErrConflictService) Error() string {
-	s.DefaultError = fmt.Sprintf("this port [%d] and [%s] is already used by other service", s.Port, s.Protocol)
+	s.DefaultError = fmt.Sprintf("the port [%d] or protocol [%s] MAY be conflicted with other service", s.Port, s.Protocol)
 	return s.ChoseErrString()
 }
 
