@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/klog/v2"
+	"strconv"
 	lStr "strings"
 	"time"
 
@@ -16,7 +18,6 @@ import (
 	lConsts "github.com/cuongpiger/vcontainer-ccm/pkg/consts"
 
 	lObjects "github.com/vngcloud/vcontainer-sdk/vcontainer/objects"
-	lClusterObjV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/coe/v2/cluster/obj"
 	lListenerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/listener"
 	lLoadBalancerV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/loadbalancer"
 	lPoolV2 "github.com/vngcloud/vcontainer-sdk/vcontainer/services/loadbalancer/v2/pool"
@@ -101,6 +102,19 @@ func GenLoadBalancerPrefixName(pClusterID string) string {
 		pClusterID[lConsts.DEFAULT_VLB_ID_PIECE_START_INDEX:lConsts.DEFAULT_VLB_ID_PIECE_START_INDEX+lConsts.DEFAULT_VLB_ID_PIECE_LENGTH])
 	return lbName
 }
+
+func GenCompleteLoadBalancerName(pClusterID string, pService *lCoreV1.Service) string {
+	genName := GenLoadBalancerName(pClusterID, pService)
+	lbPrefixName := GenLoadBalancerPrefixName(pClusterID)
+	lbName := GetStringFromServiceAnnotation(pService, lConsts.ServiceAnnotationLoadBalancerName, "")
+
+	if len(lbName) > 0 {
+		lbName = fmt.Sprintf("%s-%s", lbPrefixName, lbName)
+		return lStr.ToLower(lbName[:MinInt(len(lbName), lConsts.DEFAULT_PORTAL_NAME_LENGTH)])
+	} else {
+		return genName
+	}
+}
 func MinInt(a, b int) int {
 	if a < b {
 		return a
@@ -142,15 +156,12 @@ func ListWorkerNodes(pNodes []*lCoreV1.Node, pOnlyReadyNode bool) []*lCoreV1.Nod
 	return workerNodes
 }
 
-func CheckOwner(pCluster *lClusterObjV2.Cluster, pLb *lObjects.LoadBalancer, pService *lCoreV1.Service) bool {
+func CheckOwner(pCluster *lObjects.Cluster, pLb *lObjects.LoadBalancer, pService *lCoreV1.Service) bool {
 	if pLb == nil {
 		return true
 	}
 
-	svcAnnotations := pService.ObjectMeta.Annotations
-	if svcAnnotations != nil &&
-		len(svcAnnotations) > 0 &&
-		svcAnnotations[lConsts.DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX+"/owner-cluster-id"] == pCluster.ID {
+	if GenCompleteLoadBalancerName(pCluster.ID, pService) == pLb.Name {
 		return true
 	}
 
@@ -205,4 +216,59 @@ func ParseListenerProtocol(pPort lCoreV1.ServicePort) lListenerV2.CreateOptsList
 	}
 
 	return lListenerV2.CreateOptsListenerProtocolOptTCP
+}
+
+func GetStringFromServiceAnnotation(pService *lCoreV1.Service, annotationKey string, defaultSetting string) string {
+	klog.V(4).Infof("getStringFromServiceAnnotation(%s/%s, %v, %v)", pService.Namespace, pService.Name, annotationKey, defaultSetting)
+	if annotationValue, ok := pService.Annotations[annotationKey]; ok {
+		//if there is an annotation for this setting, set the "setting" var to it
+		// annotationValue can be empty, it is working as designed
+		// it makes possible for instance provisioning loadbalancer without floatingip
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		return annotationValue
+	}
+
+	//if there is no annotation, set "settings" var to the value from cloud config
+	if defaultSetting != "" {
+		klog.V(4).Infof("Could not find a Service Annotation; falling back on cloud-config setting: %v = %v", annotationKey, defaultSetting)
+	}
+
+	return defaultSetting
+}
+
+func GetBoolFromServiceAnnotation(service *lCoreV1.Service, annotationKey string, defaultSetting bool) bool {
+	klog.V(4).Infof("getBoolFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		returnValue := false
+		switch annotationValue {
+		case "true":
+			returnValue = true
+		case "false":
+			returnValue = false
+		default:
+			klog.Infof("Found a non-boolean Service Annotation: %v = %v (falling back to default setting: %v)", annotationKey, annotationValue, defaultSetting)
+			return defaultSetting
+		}
+
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, returnValue)
+		return returnValue
+	}
+	klog.V(4).Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
+	return defaultSetting
+}
+
+func GetIntFromServiceAnnotation(service *lCoreV1.Service, annotationKey string, defaultSetting int) int {
+	klog.V(4).Infof("getIntFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		returnValue, err := strconv.Atoi(annotationValue)
+		if err != nil {
+			klog.Warningf("Could not parse int value from %q, failing back to default %s = %v, %v", annotationValue, annotationKey, defaultSetting, err)
+			return defaultSetting
+		}
+
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		return returnValue
+	}
+	klog.V(4).Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
+	return defaultSetting
 }
