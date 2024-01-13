@@ -244,31 +244,19 @@ func (s *vLB) ensureLoadBalancer(
 			return nil, err
 		}
 
-		// Ensure listners
-		_, err = s.ensureListener(userCluster, userLb.UUID, newPool.UUID, lbName, port, pService, svcConf)
-		if err != nil {
-			klog.Errorf("failed to create listener for load balancer %s: %v", userLb.UUID, err)
-			return nil, err
+		if newPool != nil {
+			// Ensure listners because of this pool change
+			_, err = s.ensureListener(userCluster, userLb.UUID, newPool.UUID, lbName, port, pService, svcConf)
+			if err != nil {
+				klog.Errorf("failed to create listener for load balancer %s: %v", userLb.UUID, err)
+				return nil, err
+			}
 		}
 
-		klog.Infof("created listener and pool for load balancer %s successfully", userLb.UUID)
+		klog.Infof(
+			"processed listener and pool with port [%d] and protocol [%s] for load balancer %s successfully", port.Port, port.Protocol, userLb.UUID)
 	}
 	klog.V(5).Infof("processing listeners and pools completely")
-
-	for _, itemListener := range lbListeners {
-		err = lListenerV2.Delete(s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), userLb.UUID, itemListener.ID))
-		if err != nil {
-			klog.Errorf("failed to delete listener %s for load balancer %s: %v", itemListener.ID, userLb.UUID, err)
-			return nil, err
-		}
-
-		_, err = s.waitLoadBalancerReady(userLb.UUID)
-		if err != nil {
-			klog.Errorf("failed to wait load balancer %s for service %s: %v", userLb.UUID, pService.Name, err)
-			return nil, err
-		}
-	}
-
 	if lUtils.GetBoolFromServiceAnnotation(pService, lConsts.ServiceAnnotationEnableSecgroupDefault, true) {
 		klog.V(5).Infof("processing security group")
 		// Update the security group
@@ -449,12 +437,15 @@ func (s *vLB) ensurePool(
 
 				if lPoolV2.IsErrPoolMemberUnchanged(err) {
 					klog.Infof("pool %s for service %s has no change", userPool.Name, pService.Name)
-					return userPool, nil
+					return nil, nil
 				}
 
 				klog.Errorf("failed to update pool %s for service %s: %v", pService.Name, pService.Name, err)
 				return nil, err
 			}
+		} else {
+			klog.Infof("pool %s for service %s has no change", userPool.Name, pService.Name)
+			return nil, nil
 		}
 	}
 
