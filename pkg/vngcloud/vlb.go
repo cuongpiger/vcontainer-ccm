@@ -46,6 +46,7 @@ type (
 		DefaultMonitorHttpSuccessCode    string `gcfg:"default-monitor-http-success-code"`
 		DefaultMonitorHttpVersion        string `gcfg:"default-monitor-http-version"`
 		DefaultMonitorHttpDomainName     string `gcfg:"default-monitor-http-domain-name"`
+		DefaultMonitorProtocol           string `gcfg:"default-monitor-protocol"`
 	}
 
 	// vLB is the implementation of the VNG CLOUD for actions on load balancer
@@ -87,7 +88,14 @@ type (
 		monitorUnhealthyThreshold int
 		monitorInterval           int
 		monitorTimeout            int
+		monitorHttpMethod         string
+		monitorHttpPath           string
+		monitorHttpSuccessCode    string
+		monitorHttpVersion        string
+		monitorHttpDomainName     string
+		monitorProtocol           string
 	}
+
 	listenerKey struct {
 		Protocol string
 		Port     int
@@ -406,11 +414,16 @@ func (s *vLB) ensurePool(
 			PoolProtocol: poolProtocol,
 			Members:      poolMembers,
 			HealthMonitor: lPoolV2.HealthMonitor{
-				HealthCheckProtocol: lUtils.ParseMonitorProtocol(pPort.Protocol),
+				HealthCheckProtocol: lUtils.ParseMonitorProtocol(pPort.Protocol, pServiceConfig.monitorProtocol),
 				HealthyThreshold:    pServiceConfig.monitorHealthyThreshold,
 				UnhealthyThreshold:  pServiceConfig.monitorUnhealthyThreshold,
 				Timeout:             pServiceConfig.monitorTimeout,
 				Interval:            pServiceConfig.monitorInterval,
+				HealthCheckMethod:   lUtils.ParseMonitorHealthCheckMethod(pServiceConfig.monitorHttpMethod),
+				HealthCheckPath:     &pServiceConfig.monitorHttpPath,
+				DomainName:          &pServiceConfig.monitorHttpDomainName,
+				HttpVersion:         &pServiceConfig.monitorHttpVersion,
+				SuccessCode:         &pServiceConfig.monitorHttpSuccessCode,
 			},
 		}))
 
@@ -499,6 +512,13 @@ func (s *vLB) getProjectID() string {
 }
 
 func (s *vLB) ensureDeleteLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service) error {
+
+	var (
+		userLb *lObjects.LoadBalancer // hold the loadbalancer that user want to reuse or create
+
+		lbID = lUtils.GetStringFromServiceAnnotation(pService, lConsts.ServiceAnnotationLoadBalancerID, "")
+	)
+
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
 	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
 	if lClusterV2.IsErrClusterNotFound(err) {
@@ -506,21 +526,31 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx lCtx.Context, pClusterID string, pSe
 		return err
 	}
 
-	// Get this loadbalancer name
-	userLbs, err := lLoadBalancerV2.List(s.vLbSC, lLoadBalancerV2.NewListOpts(s.getProjectID()))
-	if err != nil {
-		klog.Warningf("failed to list load balancers for cluster %s in the subnet %s: %v", pClusterID, userCluster.SubnetID, err)
-		return err
+	if len(lbID) > 0 {
+		if userLb, err = lLoadBalancerV2.Get(s.vLbSC, lLoadBalancerV2.NewGetOpts(s.getProjectID(), lbID)); err != nil {
+			klog.Errorf("failed to get load balancer %s for service %s/%s when try to delete this loadbalancer: %v",
+				lbID, pService.Namespace, pService.Name, err)
+			return err
+		}
+	} else {
+		// Get this loadbalancer name
+		userLbs, err := lLoadBalancerV2.List(s.vLbSC, lLoadBalancerV2.NewListOpts(s.getProjectID()))
+		if err != nil {
+			klog.Warningf("failed to list load balancers for cluster %s in the subnet %s: %v", pClusterID, userCluster.SubnetID, err)
+			return err
+		}
+
+		if userLbs == nil || len(userLbs) < 1 {
+			klog.Infof("no load balancer found for cluster %s", pClusterID)
+			return nil
+		}
+
+		// Get the loadbalancer by subnetID and loadbalancer name
+		lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
+		userLb = s.findLoadBalancer(lbName, userLbs, userCluster)
 	}
 
-	if userLbs == nil || len(userLbs) < 1 {
-		klog.Infof("no load balancer found for cluster %s", pClusterID)
-		return nil
-	}
-
-	// Get the loadbalancer by subnetID and loadbalancer name
-	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
-	if userLb := s.findLoadBalancer(lbName, userLbs, userCluster); userLb != nil {
+	if userLb != nil {
 		canDelete := s.canDeleteThisLoadBalancer(userLb, userCluster, pService)
 		if !canDelete {
 			klog.Infof(
@@ -732,6 +762,25 @@ func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*l
 	// Set the monitor interval, default is get from the cloud config file if not set in the service annotation
 	pServiceConfig.monitorInterval = lUtils.GetIntFromServiceAnnotation(
 		pService, lConsts.ServiceAnnotationMonitorInterval, s.vLbConfig.DefaultMonitorInterval)
+
+	// Set the monitor http and its relevant options
+	pServiceConfig.monitorHttpMethod = lUtils.GetStringFromServiceAnnotation(
+		pService, lConsts.ServiceAnnotationMonitorHttpMethod, s.vLbConfig.DefaultMonitorHttpMethod)
+
+	pServiceConfig.monitorHttpPath = lUtils.GetStringFromServiceAnnotation(
+		pService, lConsts.ServiceAnnotationMonitorHttpPath, s.vLbConfig.DefaultMonitorHttpPath)
+
+	pServiceConfig.monitorHttpSuccessCode = lUtils.GetStringFromServiceAnnotation(
+		pService, lConsts.ServiceAnnotationMonitorHttpSuccessCode, s.vLbConfig.DefaultMonitorHttpSuccessCode)
+
+	pServiceConfig.monitorHttpDomainName = lUtils.GetStringFromServiceAnnotation(
+		pService, lConsts.ServiceAnnotationMonitorHttpDomainName, s.vLbConfig.DefaultMonitorHttpDomainName)
+
+	pServiceConfig.monitorHttpVersion = lUtils.GetStringFromServiceAnnotation(
+		pService, lConsts.ServiceAnnotationMonitorHttpVersion, s.vLbConfig.DefaultMonitorHttpVersion)
+
+	pServiceConfig.monitorProtocol = lUtils.GetStringFromServiceAnnotation(
+		pService, lConsts.ServiceAnnotationMonitorProtocol, s.vLbConfig.DefaultMonitorProtocol)
 
 	return nil
 }

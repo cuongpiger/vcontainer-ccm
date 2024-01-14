@@ -15,10 +15,3 @@ const (
 	PROVIDER_NAME              = "vngcloud"
 	ACTIVE_LOADBALANCER_STATUS = "ACTIVE"
 )
-
-const (
-	healthMonitorHealthyThreshold   = 3
-	healthMonitorUnhealthyThreshold = 3
-	healthMonitorTimeout            = 5
-	healthMonitorInterval           = 30
-)

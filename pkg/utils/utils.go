@@ -192,13 +192,39 @@ func ParsePoolProtocol(pPoolProtocol lCoreV1.Protocol) lPoolV2.CreateOptsProtoco
 	return lPoolV2.CreateOptsProtocolOptTCP
 }
 
-func ParseMonitorProtocol(pPoolProtocol lCoreV1.Protocol) lPoolV2.CreateOptsHealthCheckProtocolOpt {
-	opt := lStr.TrimSpace(lStr.ToUpper(string(pPoolProtocol)))
-	switch opt {
+func ParseMonitorProtocol(
+	pPoolProtocol lCoreV1.Protocol, pMonitorProtocol string) lPoolV2.CreateOptsHealthCheckProtocolOpt {
+
+	switch lStr.TrimSpace(lStr.ToUpper(string(pPoolProtocol))) {
 	case string(lPoolV2.CreateOptsProtocolOptUDP):
 		return lPoolV2.CreateOptsHealthCheckProtocolOptPINGUDP
 	}
+
+	switch lStr.TrimSpace(lStr.ToUpper(pMonitorProtocol)) {
+	case string(lPoolV2.CreateOptsHealthCheckProtocolOptHTTP):
+		return lPoolV2.CreateOptsHealthCheckProtocolOptHTTP
+	case string(lPoolV2.CreateOptsHealthCheckProtocolOptHTTPs):
+		return lPoolV2.CreateOptsHealthCheckProtocolOptHTTPs
+	case string(lPoolV2.CreateOptsHealthCheckProtocolOptPINGUDP):
+		return lPoolV2.CreateOptsHealthCheckProtocolOptPINGUDP
+	}
+
 	return lPoolV2.CreateOptsHealthCheckProtocolOptTCP
+}
+
+func ParseMonitorHealthCheckMethod(pMethod string) *lPoolV2.CreateOptsHealthCheckMethodOpt {
+	opt := lStr.TrimSpace(lStr.ToUpper(pMethod))
+	switch opt {
+	case string(lPoolV2.CreateOptsHealthCheckMethodOptPUT):
+		tmp := lPoolV2.CreateOptsHealthCheckMethodOptPUT
+		return &tmp
+	case string(lPoolV2.CreateOptsHealthCheckMethodOptPOST):
+		tmp := lPoolV2.CreateOptsHealthCheckMethodOptPOST
+		return &tmp
+	}
+
+	tmp := lPoolV2.CreateOptsHealthCheckMethodOptGET
+	return &tmp
 }
 
 func ParseLoadBalancerScheme(pInternal bool) lLoadBalancerV2.CreateOptsSchemeOpt {

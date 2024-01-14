@@ -21,4 +21,10 @@ const (
 	ServiceAnnotationMonitorTimeout            = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-timeout"
 	ServiceAnnotationMonitorInterval           = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-interval"
 	ServiceAnnotationLoadBalancerInternal      = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/internal-load-balancer"
+	ServiceAnnotationMonitorHttpMethod         = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-method"
+	ServiceAnnotationMonitorHttpPath           = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-path"
+	ServiceAnnotationMonitorHttpSuccessCode    = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-success-code"
+	ServiceAnnotationMonitorHttpVersion        = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-version"
+	ServiceAnnotationMonitorHttpDomainName     = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-http-domain-name"
+	ServiceAnnotationMonitorProtocol           = DEFAULT_K8S_SERVICE_ANNOTATION_PREFIX + "/monitor-protocol"
 )
