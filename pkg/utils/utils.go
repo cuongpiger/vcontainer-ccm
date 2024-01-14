@@ -227,6 +227,18 @@ func ParseMonitorHealthCheckMethod(pMethod string) *lPoolV2.CreateOptsHealthChec
 	return &tmp
 }
 
+func ParseMonitorHttpVersion(pVersion string) *lPoolV2.CreateOptsHealthCheckHttpVersionOpt {
+	opt := lStr.TrimSpace(lStr.ToUpper(pVersion))
+	switch opt {
+	case string(lPoolV2.CreateOptsHealthCheckHttpVersionOptHttp1Minor1):
+		tmp := lPoolV2.CreateOptsHealthCheckHttpVersionOptHttp1Minor1
+		return &tmp
+	}
+
+	tmp := lPoolV2.CreateOptsHealthCheckHttpVersionOptHttp1
+	return &tmp
+}
+
 func ParseLoadBalancerScheme(pInternal bool) lLoadBalancerV2.CreateOptsSchemeOpt {
 	if pInternal {
 		return lLoadBalancerV2.CreateOptsSchemeOptInternal

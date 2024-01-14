@@ -415,17 +415,19 @@ func (s *vLB) ensurePool(
 			Members:      poolMembers,
 			HealthMonitor: lPoolV2.HealthMonitor{
 				HealthCheckProtocol: lUtils.ParseMonitorProtocol(pPort.Protocol, pServiceConfig.monitorProtocol),
+				HealthCheckMethod:   lUtils.ParseMonitorHealthCheckMethod(pServiceConfig.monitorHttpMethod),
+				HttpVersion:         lUtils.ParseMonitorHttpVersion(pServiceConfig.monitorHttpVersion),
 				HealthyThreshold:    pServiceConfig.monitorHealthyThreshold,
 				UnhealthyThreshold:  pServiceConfig.monitorUnhealthyThreshold,
 				Timeout:             pServiceConfig.monitorTimeout,
 				Interval:            pServiceConfig.monitorInterval,
-				HealthCheckMethod:   lUtils.ParseMonitorHealthCheckMethod(pServiceConfig.monitorHttpMethod),
 				HealthCheckPath:     &pServiceConfig.monitorHttpPath,
 				DomainName:          &pServiceConfig.monitorHttpDomainName,
-				HttpVersion:         &pServiceConfig.monitorHttpVersion,
 				SuccessCode:         &pServiceConfig.monitorHttpSuccessCode,
 			},
 		}))
+
+		klog.Infof("Created pool with success code %s for service, waiting the loadbalancer update completely", pServiceConfig.monitorHttpSuccessCode)
 
 		if err != nil {
 			klog.Errorf("failed to create pool %s for service %s: %v", pService.Name, pService.Name, err)
