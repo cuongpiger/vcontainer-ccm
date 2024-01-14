@@ -814,13 +814,7 @@ func (s *vLB) checkListeners(
 			if lbListener.Name != listenerName {
 				klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
 				return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
-			}
-
-			// If the listener is already existed, but the port and protocol is correct
-			klog.Infof(
-				"the port %d and protocol %s is existed, there is no any conflict", svcPort.Port, svcPort.Protocol)
-		} else {
-			if lbListener.Name == listenerName {
+			} else {
 				// If the listener is already existed, but the port and protocol is not correct
 				klog.Errorf(
 					"the port %d and protocol %s is conflict, checking to delete old resources", svcPort.Port, svcPort.Protocol)
@@ -851,14 +845,18 @@ func (s *vLB) checkListeners(
 					klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
 					return err
 				}
-			} else {
-				klog.V(5).Infof("the port %d and protocol %s in the manifest conflict with other services", svcPort.Port, svcPort.Protocol)
-				for key, _ := range pListenerMapping {
-					// Conflict when the port is the same but the protocol is different
-					if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
-						klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
-						return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
-					}
+			}
+
+			// If the listener is already existed, but the port and protocol is correct
+			klog.Infof(
+				"the port %d and protocol %s is existed, there is no any conflict", svcPort.Port, svcPort.Protocol)
+		} else {
+			klog.V(5).Infof("the port %d and protocol %s in the manifest conflict with other services", svcPort.Port, svcPort.Protocol)
+			for key, _ := range pListenerMapping {
+				// Conflict when the port is the same but the protocol is different
+				if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
+					klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
+					return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
 				}
 			}
 		}
