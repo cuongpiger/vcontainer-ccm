@@ -38,7 +38,7 @@ GOFLAGS		:=
 TAGS		:=
 LDFLAGS		:= "-w -s -X 'k8s.io/component-base/version.gitVersion=$(VERSION)' -X 'github.com/cuongpiger/vcontainer-ccm/pkg/version.Version=$(VERSION)'"
 GOX_LDFLAGS	:= $(shell echo "$(LDFLAGS) -extldflags \"-static\"")
-REGISTRY	?= vcr.vngcloud.vn/60108-cuongdm3
+REGISTRY	?= quay.io/cuongdm8499
 IMAGE_OS	?= linux
 IMAGE_NAMES	?= vcontainer-ccm
 ARCH		?= amd64

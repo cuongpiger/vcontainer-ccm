@@ -208,7 +208,7 @@ func (s *vLB) ensureLoadBalancer(
 
 	// Find the loadbalancer from the list of loadbalancer that we got from the project,
 	// make sure they are on the same subnet
-	userLb = s.findLoadBalancer(lbName, lsLbs, userCluster)
+	userLb = s.findLoadBalancer(lbName, svcConf.lbID, lsLbs, userCluster)
 	isOwner = lUtils.CheckOwner(userCluster, userLb, pService)
 	createNewLb = userLb == nil
 
@@ -549,7 +549,7 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx lCtx.Context, pClusterID string, pSe
 
 		// Get the loadbalancer by subnetID and loadbalancer name
 		lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
-		userLb = s.findLoadBalancer(lbName, userLbs, userCluster)
+		userLb = s.findLoadBalancer(lbName, lbID, userLbs, userCluster)
 	}
 
 	if userLb != nil {
@@ -574,7 +574,7 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx lCtx.Context, pClusterID string, pSe
 			// Delete all listeners of this loadbalancer
 			for _, itemListener := range lbListeners {
 				if err := s.deleteListenersAndPools(userCluster, itemListener, userLb, pService); err != nil {
-					klog.Errorf("failed to delete listener %s for loadbalancer %s: %v", itemListener.ID, userLb.UUID, err)
+					klog.Errorf("failed to delete listener and pool %s for loadbalancer %s: %v", itemListener.ID, userLb.UUID, err)
 					return err
 				}
 			}
@@ -598,6 +598,10 @@ func (s *vLB) ensureDeleteLoadBalancer(pCtx lCtx.Context, pClusterID string, pSe
 }
 
 func (s *vLB) ensureGetLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service) (*lCoreV1.LoadBalancerStatus, bool, error) {
+
+	// Get the loadbalancer UUID
+	lbID := lUtils.GetStringFromServiceAnnotation(pService, lConsts.ServiceAnnotationLoadBalancerID, "")
+
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
 	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
 	if lClusterV2.IsErrClusterNotFound(err) {
@@ -615,7 +619,7 @@ func (s *vLB) ensureGetLoadBalancer(pCtx lCtx.Context, pClusterID string, pServi
 	// Get the loadbalancer by subnetID and loadbalancer name
 	lbName := s.GetLoadBalancerName(pCtx, pClusterID, pService)
 	for _, itemLb := range userLbs {
-		if s.findLoadBalancer(lbName, userLbs, userCluster) != nil {
+		if s.findLoadBalancer(lbName, lbID, userLbs, userCluster) != nil {
 			status := &lCoreV1.LoadBalancerStatus{}
 			status.Ingress = []lCoreV1.LoadBalancerIngress{{IP: itemLb.Address}}
 			return status, true, nil
@@ -787,7 +791,7 @@ func (s *vLB) configureLoadBalancerParams(pService *lCoreV1.Service, pNodes []*l
 	return nil
 }
 
-func (s *vLB) findLoadBalancer(pLbName string, pLbs []*lObjects.LoadBalancer, // params
+func (s *vLB) findLoadBalancer(pLbName, pLbID string, pLbs []*lObjects.LoadBalancer, // params
 	pCluster *lObjects.Cluster) *lObjects.LoadBalancer { // returns
 
 	if pCluster == nil || len(pLbs) < 1 {
@@ -795,7 +799,13 @@ func (s *vLB) findLoadBalancer(pLbName string, pLbs []*lObjects.LoadBalancer, //
 	}
 
 	for _, lb := range pLbs {
+		// This solves the case when the cluster is the owner of the loadbalancer
 		if lb.SubnetID == pCluster.SubnetID && lb.Name == pLbName {
+			return lb
+		}
+
+		// This solves the case when user reuses this loadbalancer from the annotations
+		if lb.UUID == pLbID && lb.SubnetID == pCluster.SubnetID {
 			return lb
 		}
 	}
@@ -816,7 +826,13 @@ func (s *vLB) checkListeners(
 			if lbListener.Name != listenerName {
 				klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
 				return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
-			} else {
+			}
+
+			// If the listener is already existed and the port and protocol is correct
+			klog.Infof(
+				"the port %d and protocol %s is existed, there is no any conflict", svcPort.Port, svcPort.Protocol)
+		} else {
+			if lbListener.Name == listenerName {
 				// If the listener is already existed, but the port and protocol is not correct
 				klog.Errorf(
 					"the port %d and protocol %s is conflict, checking to delete old resources", svcPort.Port, svcPort.Protocol)
@@ -847,18 +863,17 @@ func (s *vLB) checkListeners(
 					klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
 					return err
 				}
-			}
+			} else {
+				// If the listener is not existed, check if the port and protocol is conflict with other services
+				klog.V(5).Infof("the port %d and protocol %s in the manifest "+
+					"MAY BE conflicted with other services, is checking...", svcPort.Port, svcPort.Protocol)
 
-			// If the listener is already existed, but the port and protocol is correct
-			klog.Infof(
-				"the port %d and protocol %s is existed, there is no any conflict", svcPort.Port, svcPort.Protocol)
-		} else {
-			klog.V(5).Infof("the port %d and protocol %s in the manifest conflict with other services", svcPort.Port, svcPort.Protocol)
-			for key, _ := range pListenerMapping {
-				// Conflict when the port is the same but the protocol is different
-				if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
-					klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
-					return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
+				for key, _ := range pListenerMapping {
+					// Conflict when the port is the same but the protocol is different
+					if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
+						klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
+						return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
+					}
 				}
 			}
 		}
@@ -924,12 +939,18 @@ func (s *vLB) deleteListenersAndPools(
 	for _, itemPort := range pService.Spec.Ports {
 		listenerName := lUtils.GenListenerAndPoolName(pCluster.ID, pService, itemPort)
 		poolID := pListener.DefaultPoolUUID
+
+		klog.Info("Deleting listener %s for loadbalancer %s", listenerName, pLb.UUID)
 		if pListener.Name == listenerName {
 			if err := lListenerV2.Delete(
 				s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, pListener.ID)); err != nil {
 				klog.Errorf("failed to delete listener %s for load balancer %s: %v", pListener.ID, pLb.UUID, err)
 				return err
 			}
+
+			klog.Infof("deleted listener %s (%s) for load balancer %s successfully", pListener.ID, listenerName, pLb.UUID)
+		} else {
+			continue
 		}
 
 		if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
@@ -955,6 +976,10 @@ func (s *vLB) deleteListenersAndPools(
 }
 
 func (s *vLB) ensureUpdateLoadBalancer(pCtx lCtx.Context, pClusterID string, pService *lCoreV1.Service, pNodes []*lCoreV1.Node) error {
+
+	// Get the loadbalancer ID
+	lbID := lUtils.GetStringFromServiceAnnotation(pService, lConsts.ServiceAnnotationLoadBalancerID, "")
+
 	// Get the cluster info from the cluster ID that user provided from the K8s secret
 	userCluster, err := lClusterV2.Get(s.vServerSC, lClusterV2.NewGetOpts(s.getProjectID(), pClusterID))
 	if err != nil || userCluster == nil {
@@ -976,7 +1001,7 @@ func (s *vLB) ensureUpdateLoadBalancer(pCtx lCtx.Context, pClusterID string, pSe
 		return nil
 	}
 
-	userLb := s.findLoadBalancer(lbName, lstLbs, userCluster)
+	userLb := s.findLoadBalancer(lbName, lbID, lstLbs, userCluster)
 	if userLb == nil {
 		klog.Infof("Load balancer %s is not existed", lbName)
 		return nil
