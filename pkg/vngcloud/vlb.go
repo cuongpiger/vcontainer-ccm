@@ -818,59 +818,69 @@ func (s *vLB) checkListeners(
 	pService *lCoreV1.Service, pListenerMapping map[listenerKey]*lObjects.Listener, // params
 	pCluster *lObjects.Cluster, pLb *lObjects.LoadBalancer) error { // params and returns
 
+	// Loop via the pair of port and protocol in the spec
 	for _, svcPort := range pService.Spec.Ports {
 		key := listenerKey{Protocol: string(svcPort.Protocol), Port: int(svcPort.Port)}
 		listenerName := lUtils.GenListenerAndPoolName(pCluster.ID, pService, svcPort)
 
+		// If the port and protocol is existed
 		if lbListener, isPresent := pListenerMapping[key]; isPresent {
+			// Conflict the listener with other services
 			if lbListener.Name != listenerName {
 				klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
 				return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
-			}
-
-			// If the listener is already existed and the port and protocol is correct
-			klog.Infof(
-				"the port %d and protocol %s is existed, there is no any conflict", svcPort.Port, svcPort.Protocol)
-		} else {
-			if lbListener.Name == listenerName {
-				// If the listener is already existed, but the port and protocol is not correct
-				klog.Errorf(
-					"the port %d and protocol %s is conflict, checking to delete old resources", svcPort.Port, svcPort.Protocol)
-				poolID := lbListener.DefaultPoolUUID
-
-				// MUST delete the listener first
-				if err := lListenerV2.Delete(
-					s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, lbListener.ID)); err != nil {
-					klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLb.UUID, err)
-					return err
-				}
-
-				klog.V(5).Infof("waiting to delete listener %s for load balancer %s complete", lbListener.ID, pLb.UUID)
-				if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
-					klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
-					return err
-				}
-
-				// ... and then delete the pool later
-				if err := lPoolV2.Delete(
-					s.vLbSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, poolID)); err != nil {
-					klog.Errorf("failed to delete pool %s for load balancer %s: %v", poolID, pLb.UUID, err)
-					return err
-				}
-
-				klog.V(5).Infof("waiting to delete pool %s for load balancer %s complete", poolID, pLb.UUID)
-				if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
-					klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
-					return err
-				}
 			} else {
-				// If the listener is not existed, check if the port and protocol is conflict with other services
-				klog.V(5).Infof("the port %d and protocol %s in the manifest "+
-					"MAY BE conflicted with other services, is checking...", svcPort.Port, svcPort.Protocol)
+				// not conflict, continue to check
+				continue
+			}
+		} else {
+			klog.V(5).Infof("the port %d and protocol %s in the manifest "+
+				"MAY BE conflicted with other services, is checking...", svcPort.Port, svcPort.Protocol)
 
-				for key, _ := range pListenerMapping {
-					// Conflict when the port is the same but the protocol is different
-					if key.Port == int(svcPort.Port) && key.Protocol != string(svcPort.Protocol) {
+			// Loop via entire listeners in the loadbalancer
+			for key, itemLb := range pListenerMapping {
+				checkPort := key.Port == int(svcPort.Port)
+				checkProtocol := key.Protocol == string(svcPort.Protocol)
+				checkName := itemLb.Name == listenerName
+
+				// If same name but port or protocol conflict => delete
+				if checkName && (!checkPort || !checkProtocol) {
+					// If the listener is already existed, but the port and protocol is not correct
+					klog.Errorf(
+						"the port %d and protocol %s is conflict, checking to delete old resources", svcPort.Port, svcPort.Protocol)
+					poolID := lbListener.DefaultPoolUUID
+
+					// MUST delete the listener first
+					if err := lListenerV2.Delete(
+						s.vLbSC, lListenerV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, lbListener.ID)); err != nil {
+						klog.Errorf("failed to delete listener %s for load balancer %s: %v", lbListener.ID, pLb.UUID, err)
+						return err
+					}
+
+					klog.V(5).Infof("waiting to delete listener %s for load balancer %s complete", lbListener.ID, pLb.UUID)
+					if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+						klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+						return err
+					}
+
+					// ... and then delete the pool later
+					if err := lPoolV2.Delete(
+						s.vLbSC, lPoolV2.NewDeleteOpts(s.getProjectID(), pLb.UUID, poolID)); err != nil {
+						klog.Errorf("failed to delete pool %s for load balancer %s: %v", poolID, pLb.UUID, err)
+						return err
+					}
+
+					klog.V(5).Infof("waiting to delete pool %s for load balancer %s complete", poolID, pLb.UUID)
+					if _, err := s.waitLoadBalancerReady(pLb.UUID); err != nil {
+						klog.Errorf("failed to wait load balancer %s for service %s: %v", pLb.UUID, pService.Name, err)
+						return err
+					}
+				} else if !checkName {
+					// Must ignore the case port and protocol is not same, and protocol is same but port is not same
+					if (!checkProtocol && !checkPort) || (checkProtocol && !checkPort) {
+						continue
+					} else {
+						// Name is not same but same port and protocol
 						klog.Errorf("the port %d and protocol %s is conflict", svcPort.Port, svcPort.Protocol)
 						return lErrors.NewErrConflictService(int(svcPort.Port), string(svcPort.Protocol), "")
 					}
